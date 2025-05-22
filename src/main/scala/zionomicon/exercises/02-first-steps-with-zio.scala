@@ -307,7 +307,7 @@ object FirstStepsWithZIO {
    */
   object Exercise20 {
 
-    def doWhile[R, E, A](
+    def doUntil[R, E, A](
       body: ZIO[R, E, A]
     )(condition: A => Boolean): ZIO[R, E, A] =
       ???
