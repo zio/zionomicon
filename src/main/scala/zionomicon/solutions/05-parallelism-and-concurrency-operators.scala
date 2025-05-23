@@ -44,7 +44,7 @@ object TheFiberModel {
      Write a program that starts a long-running effect (e.g., printing numbers every second), then interrupts it after 5 seconds.
     */
     object Question3 {
-        val printNumbers = ZIO.succeed(println(scala.util.Random().nextInt())).repeat(Schedule.spaced(1.second))
+        val printNumbers = ZIO.randomWith(_.nextInt).repeat(Schedule.fixed(1.second))
 
         def run = 
             for {
@@ -61,7 +61,7 @@ object TheFiberModel {
     */
 
     object Question4 {
-        val fail_effect = (n: Int) => ZIO.attempt(n / (n - 1)).refineOrDie {
+        val faillibleEffect = (n: Int) => ZIO.attempt(n / (n - 1)).refineOrDie {
             case _: ArithmeticException => "Division by zero"
         }
 
@@ -86,7 +86,8 @@ object TheFiberModel {
             ZIO.attemp(while(true) { Thread.sleep (100)}).uninterruptible
 
         def run = for {
-            fiber <- criticalOperation
+            fiber <- criticalOperation.fork
+            _ <- fiber.interrupt
             _ <- ZIO.debug("Operation Finished!") // <- will never reach here and operation will never stop
 
         } yield ()
@@ -115,24 +116,25 @@ object TheFiberModel {
     object Question6 {
 
         val child = 
-            printLine("Child fiber beginning execution...").orDie *> 
-                ZIO.sleep(5.seconds) *> 
-                printLine("Hello from a child fiber!").orDie
+            (printLine("Child fiber 1 beginning execution...").orDie *> 
+            ZIO.sleep(5.seconds) *> 
+            printLine("Hello from a child fiber 1!").orDie).onInterrupt(ZIO.debug("Child fiber 1 is interrupted"))
+
         val child2 = 
-            printLine("Child fiber 2 beginning execution...").orDie *> 
-                ZIO.sleep(5.seconds) *> 
-                printLine("Hello from a child fiber 2!").orDie
+            (printLine("Child fiber 2 beginning execution...").orDie *> 
+            ZIO.sleep(5.seconds) *> 
+            printLine("Hello from a child fiber 2!").orDie).onInterrupt(ZIO.debug("Child fiber 2 is interrupted"))
 
         val parent = 
-            printLine("Parent fiber beginning execution...").orDie *> 
-                child.fork *> 
-                child2.fork *>
-                ZIO.sleep(3.seconds) *> 
-                printLine("Hello from a parent fiber!").orDie
+            (printLine("Parent fiber beginning execution...").orDie *> 
+            child.fork *> 
+            child2.fork *>
+            ZIO.sleep(3.seconds) *> 
+            printLine("Hello from a parent fiber!").orDie).onInterrupt(ZIO.debug("Parent Fiber is interrupted"))
         
         def run =
             for {
-                fiber <- parent.fork
+                parentfiber <- parent.fork
                 _ <- ZIO.sleep(1.second)
                 _ <- fiber.interrupt
                 _ <- ZIO.sleep(3.seconds)
@@ -149,22 +151,22 @@ object TheFiberModel {
     object Question7 {
 
         val child = 
-            printLine("Child fiber beginning execution...").orDie *> 
-                ZIO.sleep(5.seconds) *> 
-                printLine("Hello from a child fiber!").orDie
+            (printLine("Child fiber 1 beginning execution...").orDie *> 
+            ZIO.sleep(5.seconds) *> 
+            printLine("Hello from a child fiber 1!").orDie).onInterrupt(ZIO.debug("Child fiber 1 is interrupted"))
 
         val child2 = 
-            printLine("Child fiber 2 beginning execution...").orDie *> 
-                ZIO.sleep(5.seconds) *> 
-                printLine("Hello from a child fiber 2!").orDie
+            (printLine("Child fiber 2 beginning execution...").orDie *> 
+            ZIO.sleep(5.seconds) *> 
+            printLine("Hello from a child fiber 2!").orDie).onInterrupt(ZIO.debug("Child fiber 2 is interrupted"))
 
         val parent = 
-            printLine("Parent fiber beginning execution...").orDie *> 
-                child.fork *> 
-                child2.forkDaemon *> // fork changes to forkDaemon here
-                ZIO.sleep(3.seconds) *> 
-                printLine("Hello from a parent fiber!").orDie
-        
+            (printLine("Parent fiber beginning execution...").orDie *> 
+            child.fork *> 
+            child2.forkDaemon *>
+            ZIO.sleep(3.seconds) *> 
+            printLine("Hello from a parent fiber!").orDie).onInterrupt(ZIO.debug("Parent Fiber is interrupted"))
+                
         def run =
             for {
                 fiber <- parent.fork
