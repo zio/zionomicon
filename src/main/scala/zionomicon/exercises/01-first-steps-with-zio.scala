@@ -40,10 +40,11 @@ object FirstStepsWithZIO {
 
   /**
    * Using the `flatMap` method of ZIO effects, together with the `readFileZio`
-   * and `writeFileZio` functions that you wrote, implement a ZIO version of
-   * the function `copyFile`.
+   * and `writeFileZio` functions that you wrote, implement a ZIO version of the
+   * function `copyFile`.
    */
   object Exercise3 {
+
     import Exercise1._
     import Exercise2._
 
@@ -57,13 +58,14 @@ object FirstStepsWithZIO {
   }
 
   /**
-   * Rewrite the following ZIO code that uses `flatMap` into a
-   * _for comprehension_.
+   * Rewrite the following ZIO code that uses `flatMap` into a _for
+   * comprehension_.
    */
   object Exercise4 {
 
     def printLine(line: String) = ZIO.attempt(println(line))
-    val readLine                = ZIO.attempt(scala.io.StdIn.readLine())
+
+    val readLine = ZIO.attempt(scala.io.StdIn.readLine())
 
     printLine("What is your name?").flatMap { _ =>
       readLine.flatMap { name =>
@@ -73,14 +75,16 @@ object FirstStepsWithZIO {
   }
 
   /**
-   * Rewrite the following ZIO code that uses `flatMap` into a
-   * _for comprehension_.
+   * Rewrite the following ZIO code that uses `flatMap` into a _for
+   * comprehension_.
    */
   object Exercise5 {
 
-    val random                  = ZIO.attempt(scala.util.Random.nextInt(3) + 1)
+    val random = ZIO.attempt(scala.util.Random.nextInt(3) + 1)
+
     def printLine(line: String) = ZIO.attempt(println(line))
-    val readLine                = ZIO.attempt(scala.io.StdIn.readLine())
+
+    val readLine = ZIO.attempt(scala.io.StdIn.readLine())
 
     random.flatMap { int =>
       printLine("Guess a number from 1 to 3:").flatMap { _ =>
@@ -93,10 +97,10 @@ object FirstStepsWithZIO {
   }
 
   /**
-   * Implement the `zipWith` function in terms of the toy model of a ZIO
-   * effect. The function should return an effect that sequentially composes
-   * the specified effects, merging their results with the specified
-   * user-defined function.
+   * Implement the `zipWith` function in terms of the toy model of a ZIO effect.
+   * The function should return an effect that sequentially composes the
+   * specified effects, merging their results with the specified user-defined
+   * function.
    */
   object Exercise6 {
 
@@ -111,10 +115,11 @@ object FirstStepsWithZIO {
 
   /**
    * Implement the `collectAll` function in terms of the toy model of a ZIO
-   * effect. The function should return an effect that sequentially collects
-   * the results of the specified collection of effects.
+   * effect. The function should return an effect that sequentially collects the
+   * results of the specified collection of effects.
    */
   object Exercise7 {
+
     import Exercise6._
 
     def collectAll[R, E, A](
@@ -124,11 +129,12 @@ object FirstStepsWithZIO {
   }
 
   /**
-   * Implement the `foreach` function in terms of the toy model of a ZIO
-   * effect. The function should return an effect that sequentially runs the
-   * specified function on every element of the specified collection.
+   * Implement the `foreach` function in terms of the toy model of a ZIO effect.
+   * The function should return an effect that sequentially runs the specified
+   * function on every element of the specified collection.
    */
   object Exercise8 {
+
     import Exercise6._
 
     def foreach[R, E, A, B](
@@ -143,6 +149,7 @@ object FirstStepsWithZIO {
    * that effect fails, it will fallback to the effect on the right hand side.
    */
   object Exercise9 {
+
     import Exercise6._
 
     def orElse[R, E1, E2, A](
@@ -163,7 +170,7 @@ object FirstStepsWithZIO {
     import java.io.IOException
 
     object Cat extends ZIOAppDefault {
-      
+
       val run =
         for {
           args <- ZIOAppArgs.getArgs
@@ -176,8 +183,8 @@ object FirstStepsWithZIO {
   }
 
   /**
-   * Using `ZIO.fail` and `ZIO.succeed`, implement the following function,
-   * which converts an `Either` into a ZIO effect:
+   * Using `ZIO.fail` and `ZIO.succeed`, implement the following function, which
+   * converts an `Either` into a ZIO effect:
    */
   object Exercise11 {
 
@@ -186,9 +193,9 @@ object FirstStepsWithZIO {
   }
 
   /**
-   * Using `ZIO.fail` and `ZIO.succeed`, implement the following function,
-   * which converts a `List` into a ZIO effect, by looking at the head element
-   * in the list and ignoring the rest of the elements.
+   * Using `ZIO.fail` and `ZIO.succeed`, implement the following function, which
+   * converts a `List` into a ZIO effect, by looking at the head element in the
+   * list and ignoring the rest of the elements.
    */
   object Exercise12 {
 
@@ -197,8 +204,8 @@ object FirstStepsWithZIO {
   }
 
   /**
-   * Using `ZIO.succeed`, convert the following procedural function into a
-   * ZIO function:
+   * Using `ZIO.succeed`, convert the following procedural function into a ZIO
+   * function:
    */
   object Exercise13 {
 
@@ -209,8 +216,8 @@ object FirstStepsWithZIO {
   }
 
   /**
-   * Using `ZIO.async`, convert the following asynchronous,
-   * callback-based function into a ZIO function:
+   * Using `ZIO.async`, convert the following asynchronous, callback-based
+   * function into a ZIO function:
    */
   object Exercise14 {
 
@@ -226,8 +233,8 @@ object FirstStepsWithZIO {
   }
 
   /**
-   * Using `ZIO.async`, convert the following asynchronous,
-   * callback-based function into a ZIO function:
+   * Using `ZIO.async`, convert the following asynchronous, callback-based
+   * function into a ZIO function:
    */
   object Exercise15 {
 
@@ -250,10 +257,14 @@ object FirstStepsWithZIO {
   object Exercise16 {
 
     import scala.concurrent.{ExecutionContext, Future}
+
     trait Query
+
     trait Result
 
-    def doQuery(query: Query)(implicit ec: ExecutionContext): Future[Result] =
+    def doQuery(query: Query)(implicit
+      ec: ExecutionContext
+    ): Future[Result] =
       ???
 
     def doQueryZio(query: Query): ZIO[Any, Throwable, Result] =

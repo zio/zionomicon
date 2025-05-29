@@ -46,15 +46,16 @@ object TheZIOErrorModel {
 
     def logFailures[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A] =
       zio.foldCauseZIO(
-        cause => ZIO.succeed(println(cause.prettyPrint)) *> ZIO.failCause(cause),
+        cause =>
+          ZIO.succeed(println(cause.prettyPrint)) *> ZIO.failCause(cause),
         a => ZIO.succeed(a)
       )
   }
 
   /**
-   * Using the `ZIO#exit` method, which "runs" an effect to an `Exit`
-   * value, implement the following function, which will execute the specified
-   * effect on any failure at all:
+   * Using the `ZIO#exit` method, which "runs" an effect to an `Exit` value,
+   * implement the following function, which will execute the specified effect
+   * on any failure at all:
    */
   object Exercise4 {
 
@@ -91,9 +92,9 @@ object TheZIOErrorModel {
   }
 
   /**
-   * Using the `ZIO#foldZIO` method, implement the following two functions, which
-   * make working with `Either` values easier, by shifting the unexpected case
-   * into the error channel (and reversing this shifting).
+   * Using the `ZIO#foldZIO` method, implement the following two functions,
+   * which make working with `Either` values easier, by shifting the unexpected
+   * case into the error channel (and reversing this shifting).
    */
   object Exercise7 {
 
@@ -115,9 +116,9 @@ object TheZIOErrorModel {
   }
 
   /**
-   * Using the `ZIO#foldZIO` method, implement the following two functions, which
-   * make working with `Either` values easier, by shifting the unexpected case
-   * into the error channel (and reversing this shifting).
+   * Using the `ZIO#foldZIO` method, implement the following two functions,
+   * which make working with `Either` values easier, by shifting the unexpected
+   * case into the error channel (and reversing this shifting).
    */
   object Exercise8 {
 
