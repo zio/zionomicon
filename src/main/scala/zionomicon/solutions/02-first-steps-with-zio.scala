@@ -180,10 +180,12 @@ object FirstStepsWithZIO {
           _    <- cat(args)
         } yield Unit
 
-      def cat(files: Chunk[String]) =
+      def cat(files: Chunk[String]) = {
+        import zio.ChunkCanBuildFrom._
         ZIO.foreach(files) { file =>
           readFileZio(file).flatMap(printLine)
         }
+      }
     }
   }
 

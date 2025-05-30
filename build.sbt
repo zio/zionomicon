@@ -1,4 +1,4 @@
-val zioVersion = "2.0.0"
+val zioVersion = "2.1.17"
 
 libraryDependencies ++= Seq(
   "dev.zio" %% "zio" % zioVersion
