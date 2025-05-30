@@ -8,9 +8,9 @@ package TestingZIOPrograms {
   import scala.annotation.tailrec
 
   /**
-   * 1. Write a ZIO program that simulates a countdown timer (e.g., prints numbers
-   * from 5 to 1, with a 1-second delay between each). Test this program using
-   * TestClock.
+   *   1. Write a ZIO program that simulates a countdown timer (e.g., prints
+   *      numbers from 5 to 1, with a 1-second delay between each). Test this
+   *      program using TestClock.
    */
   object CountdownTimer extends ZIOSpecDefault {
     def countdown(n: Int): ZIO[Any, Nothing, Unit] =
@@ -28,8 +28,8 @@ package TestingZIOPrograms {
           for {
             f <- countdown(5).fork
             _ <- TestClock.adjust(
-              5.seconds
-            ) // Adjust the clock to simulate time passing
+                   5.seconds
+                 ) // Adjust the clock to simulate time passing
             _ <- f.join
             o <- TestConsole.output
           } yield assertTrue(
@@ -46,10 +46,10 @@ package TestingZIOPrograms {
   }
 
   /**
-   * 2. Create a simple cache that expires entries after a certain duration.
-   * Implement a program that adds items to the cache and tries to retrieve
-   * them. Write tests using `TestClock` to verify that items are available
-   * before expiration and unavailable after expiration.
+   *   2. Create a simple cache that expires entries after a certain duration.
+   *      Implement a program that adds items to the cache and tries to retrieve
+   *      them. Write tests using `TestClock` to verify that items are available
+   *      before expiration and unavailable after expiration.
    */
   object CacheWithExpiration extends ZIOSpecDefault {
 
@@ -58,31 +58,31 @@ package TestingZIOPrograms {
     case class CacheEntry[V](value: V, expirationTime: Long)
 
     case class Cache[K, V](
-                            private val storage: Ref[Map[K, CacheEntry[V]]],
-                            expiration: Long
-                          ) {
+      private val storage: Ref[Map[K, CacheEntry[V]]],
+      expiration: Long
+    ) {
 
       def put(key: K, value: V): ZIO[Any, Nothing, Unit] =
         for {
-          currentTime <- Clock.currentTime(TimeUnit.MILLISECONDS)
+          currentTime   <- Clock.currentTime(TimeUnit.MILLISECONDS)
           expirationTime = currentTime + expiration
-          _ <- storage.update(_.updated(key, CacheEntry(value, expirationTime)))
+          _             <- storage.update(_.updated(key, CacheEntry(value, expirationTime)))
         } yield ()
 
       def get(key: K): ZIO[Any, Nothing, Option[V]] =
         for {
           currentTime <- Clock.currentTime(TimeUnit.MILLISECONDS)
-          storageMap <- storage.get
+          storageMap  <- storage.get
           result = storageMap.get(key) match {
-            case Some(entry) if entry.expirationTime > currentTime =>
-              Some(entry.value)
-            case _ =>
-              None
-          }
+                     case Some(entry) if entry.expirationTime > currentTime =>
+                       Some(entry.value)
+                     case _ =>
+                       None
+                   }
           // Optionally clean up expired entries
           _ <- storage.update(_.filter { case (_, entry) =>
-            entry.expirationTime > currentTime
-          })
+                 entry.expirationTime > currentTime
+               })
         } yield result
     }
 
@@ -98,40 +98,40 @@ package TestingZIOPrograms {
         test("should store and retrieve items before expiration") {
           for {
             cache <- Cache.make[String, String](5000) // 5 seconds expiration
-            _ <- cache.put("key1", "value1")
+            _     <- cache.put("key1", "value1")
             value <- cache.get("key1")
           } yield assertTrue(value.contains("value1"))
         },
         test("should not retrieve items after expiration") {
           for {
             cache <- Cache.make[String, String](1000) // 1 second expiration
-            _ <- cache.put("key2", "value2")
+            _     <- cache.put("key2", "value2")
             _ <- TestClock.adjust(
-              1500.millis
-            ) // Adjust the clock to simulate time passing
+                   1500.millis
+                 ) // Adjust the clock to simulate time passing
             value <- cache.get("key2")
           } yield assertTrue(value.isEmpty)
         },
         test("should handle multiple items with different expiration times") {
           for {
             cache <- Cache.make[String, String](2000) // 2 seconds expiration
-            _ <- cache.put("key1", "value1")
-            _ <- TestClock.adjust(1000.millis) // 1 second passed
+            _     <- cache.put("key1", "value1")
+            _     <- TestClock.adjust(1000.millis)    // 1 second passed
             _ <- cache.put(
-              "key2",
-              "value2"
-            ) // This will expire 1 second after key1
-            _ <- TestClock.adjust(1500.millis) // Total 2.5 seconds passed
-            value1 <- cache.get("key1") // Should be expired
-            value2 <- cache.get("key2") // Should still be valid
+                   "key2",
+                   "value2"
+                 ) // This will expire 1 second after key1
+            _      <- TestClock.adjust(1500.millis) // Total 2.5 seconds passed
+            value1 <- cache.get("key1")             // Should be expired
+            value2 <- cache.get("key2")             // Should still be valid
           } yield assertTrue(value1.isEmpty && value2.contains("value2"))
         },
         test("should overwrite existing keys with new expiration time") {
           for {
             cache <- Cache.make[String, String](1000) // 1 second expiration
-            _ <- cache.put("key1", "value1")
-            _ <- TestClock.adjust(900.millis) // Almost expired
-            _ <- cache.put("key1", "updated") // Reset expiration
+            _     <- cache.put("key1", "value1")
+            _     <- TestClock.adjust(900.millis)     // Almost expired
+            _     <- cache.put("key1", "updated")     // Reset expiration
             _ <-
               TestClock.adjust(500.millis) // Total 1.4 seconds from first put
             value <- cache.get("key1")
@@ -142,10 +142,10 @@ package TestingZIOPrograms {
   }
 
   /**
-   * 3. Create a rate limiter that allows a maximum of N operations per
-   * minute. Implement a program that uses this rate limiter. Write tests
-   * using `TestClock` to verify that the rate limiter correctly allows or
-   * blocks operations based on the time window.
+   *   3. Create a rate limiter that allows a maximum of N operations per
+   *      minute. Implement a program that uses this rate limiter. Write tests
+   *      using `TestClock` to verify that the rate limiter correctly allows or
+   *      blocks operations based on the time window.
    */
   object RateLimiterSpec extends ZIOSpecDefault {
 
@@ -174,23 +174,23 @@ package TestingZIOPrograms {
 
           def tryAcquire: UIO[Boolean] =
             for {
-              now <- Clock.instant
+              now         <- Clock.instant
               oneMinuteAgo = now.minusSeconds(60)
 
               acquired <- operationTimestamps.modify { timestamps =>
-                // Remove timestamps older than 1 minute
-                val validTimestamps =
-                  timestamps.filter(_.isAfter(oneMinuteAgo))
+                            // Remove timestamps older than 1 minute
+                            val validTimestamps =
+                              timestamps.filter(_.isAfter(oneMinuteAgo))
 
-                // Check if we can add a new operation
-                if (validTimestamps.size < maxOps) {
-                  // Add current timestamp and allow operation
-                  (true, now :: validTimestamps)
-                } else {
-                  // Rate limit exceeded
-                  (false, validTimestamps)
-                }
-              }
+                            // Check if we can add a new operation
+                            if (validTimestamps.size < maxOps) {
+                              // Add current timestamp and allow operation
+                              (true, now :: validTimestamps)
+                            } else {
+                              // Rate limit exceeded
+                              (false, validTimestamps)
+                            }
+                          }
             } yield acquired
         }
     }
@@ -218,7 +218,7 @@ package TestingZIOPrograms {
 
           } yield {
             assert(firstBatch)(forall(equalTo(true))) &&
-              assert(secondBatch)(forall(equalTo(false)))
+            assert(secondBatch)(forall(equalTo(false)))
           }
         },
         test("should reset after time window passes") {
@@ -241,8 +241,8 @@ package TestingZIOPrograms {
 
           } yield {
             assert(blockedResult)(equalTo(false)) &&
-              assert(allowedResult1)(equalTo(true)) &&
-              assert(allowedResult2)(equalTo(true))
+            assert(allowedResult1)(equalTo(true)) &&
+            assert(allowedResult2)(equalTo(true))
           }
         },
         test("should use sliding window for rate limiting") {
@@ -251,10 +251,10 @@ package TestingZIOPrograms {
 
             // Perform operations at different times
             op1 <- rateLimiter.tryAcquire // t=0
-            _ <- TestClock.adjust(20.seconds)
+            _   <- TestClock.adjust(20.seconds)
 
             op2 <- rateLimiter.tryAcquire // t=20
-            _ <- TestClock.adjust(20.seconds)
+            _   <- TestClock.adjust(20.seconds)
 
             op3 <- rateLimiter.tryAcquire // t=40
 
@@ -268,10 +268,10 @@ package TestingZIOPrograms {
 
           } yield {
             assert(op1)(equalTo(true)) &&
-              assert(op2)(equalTo(true)) &&
-              assert(op3)(equalTo(true)) &&
-              assert(op4)(equalTo(false)) &&
-              assert(op5)(equalTo(true))
+            assert(op2)(equalTo(true)) &&
+            assert(op3)(equalTo(true)) &&
+            assert(op4)(equalTo(false)) &&
+            assert(op5)(equalTo(true))
           }
         },
         test("should handle burst of operations correctly") {
@@ -286,22 +286,22 @@ package TestingZIOPrograms {
 
           } yield {
             assert(allowed)(forall(equalTo(true))) &&
-              assert(blocked)(forall(equalTo(false)))
+            assert(blocked)(forall(equalTo(false)))
           }
         }
       )
   }
 
   /**
-   * 4. Implement a function that reverses a list, then write a property-based
-   * test to verify that reversing a list twice returns the original list.
+   *   4. Implement a function that reverses a list, then write a property-based
+   *      test to verify that reversing a list twice returns the original list.
    */
   object ReverseListSpec extends ZIOSpecDefault {
     def reverseList[A](list: List[A]): List[A] = {
       @annotation.tailrec
       def loop(remaining: List[A], reversed: List[A]): List[A] =
         remaining match {
-          case Nil => reversed
+          case Nil          => reversed
           case head :: tail => loop(tail, head :: reversed)
         }
 
@@ -319,11 +319,11 @@ package TestingZIOPrograms {
   }
 
   /**
-   * 5. Implement an AVL tree (self-balancing binary search tree) with insert
-   * and delete operations. Write property-based tests to verify that the
-   * tree remains balanced after each operation. A balanced tree is one
-   * where the height of every node's left and right subtrees differs by at
-   * most one.
+   *   5. Implement an AVL tree (self-balancing binary search tree) with insert
+   *      and delete operations. Write property-based tests to verify that the
+   *      tree remains balanced after each operation. A balanced tree is one
+   *      where the height of every node's left and right subtrees differs by at
+   *      most one.
    */
   object AVLTreeSpec extends ZIOSpecDefault {
 
@@ -346,10 +346,10 @@ package TestingZIOPrograms {
     }
 
     case object Empty extends AVLNode[Nothing] {
-      val height = 0
+      val height        = 0
       val balanceFactor = 0
-      val toList = List.empty
-      val isBalanced = true
+      val toList        = List.empty
+      val isBalanced    = true
 
       def contains[B](value: B)(implicit ord: Ordering[B]) = false
 
@@ -358,11 +358,11 @@ package TestingZIOPrograms {
     }
 
     case class Node[A](
-                        value: A,
-                        left: AVLNode[A],
-                        right: AVLNode[A],
-                        height: Int
-                      ) extends AVLNode[A] {
+      value: A,
+      left: AVLNode[A],
+      right: AVLNode[A],
+      height: Int
+    ) extends AVLNode[A] {
 
       def balanceFactor: Int = left.height - right.height
 
@@ -382,13 +382,13 @@ package TestingZIOPrograms {
 
       @tailrec
       final def min: Option[A] = left match {
-        case Empty => Some(value)
+        case Empty         => Some(value)
         case node: Node[A] => node.min
       }
 
       @tailrec
       final def max: Option[A] = right match {
-        case Empty => Some(value)
+        case Empty         => Some(value)
         case node: Node[A] => node.max
       }
     }
@@ -446,12 +446,12 @@ package TestingZIOPrograms {
       }
 
       def insert[A](tree: AVLNode[A], value: A)(implicit
-                                                ord: Ordering[A]
+        ord: Ordering[A]
       ): AVLNode[A] = {
         import ord._
         tree match {
           case Empty => Node(value, Empty, Empty)
-          case node@Node(v, l, r, _) =>
+          case node @ Node(v, l, r, _) =>
             if (value < v) {
               balance(Node(v, insert(l, value), r))
             } else if (value > v) {
@@ -461,12 +461,12 @@ package TestingZIOPrograms {
       }
 
       def delete[A](tree: AVLNode[A], value: A)(implicit
-                                                ord: Ordering[A]
+        ord: Ordering[A]
       ): AVLNode[A] = {
         import ord._
         tree match {
           case Empty => Empty
-          case node@Node(v, l, r, _) =>
+          case node @ Node(v, l, r, _) =>
             if (value < v) {
               balance(Node(v, delete(l, value), r))
             } else if (value > v) {
@@ -474,9 +474,9 @@ package TestingZIOPrograms {
             } else {
               // Found the node to delete
               (l, r) match {
-                case (Empty, Empty) => Empty
-                case (Empty, right) => right
-                case (left, Empty) => left
+                case (Empty, Empty)                  => Empty
+                case (Empty, right)                  => right
+                case (left, Empty)                   => left
                 case (left: Node[A], right: Node[A]) =>
                   // Find the inorder successor (minimum in right subtree)
                   right.min match {
@@ -490,7 +490,7 @@ package TestingZIOPrograms {
       }
 
       def size[A](tree: AVLNode[A]): Int = tree match {
-        case Empty => 0
+        case Empty            => 0
         case Node(_, l, r, _) => 1 + size(l) + size(r)
       }
 
@@ -499,12 +499,12 @@ package TestingZIOPrograms {
           node match {
             case Empty => true
             case Node(v, l, r, _) =>
-              val ord = implicitly[Ordering[A]]
+              val ord      = implicitly[Ordering[A]]
               val validMin = min.forall(ord.lt(_, v))
               val validMax = max.forall(ord.gt(_, v))
               validMin && validMax &&
-                check(l, min, Some(v)) &&
-                check(r, Some(v), max)
+              check(l, min, Some(v)) &&
+              check(r, Some(v), max)
           }
 
         check(tree, None, None)
@@ -529,7 +529,7 @@ package TestingZIOPrograms {
               Gen.listOf(Gen.int(-100, 100)),
               Gen.listOf(Gen.int(-100, 100))
             ) { (insertList, deleteList) =>
-              val tree = insertList.foldLeft(AVLTree.empty[Int])(AVLTree.insert)
+              val tree           = insertList.foldLeft(AVLTree.empty[Int])(AVLTree.insert)
               val afterDeletions = deleteList.foldLeft(tree)(AVLTree.delete)
 
               assertTrue(
