@@ -1,8 +1,9 @@
 package zionomicon.exercises
 
 import zio._
+import Console._
 
-object TheFiberModel {
+object TheFiberModel_Solutions {
     
     /* 
         1. Write a ZIO program that forks two effects, one that prints “Hello” after a two-
@@ -66,7 +67,7 @@ object TheFiberModel {
         }
 
         def run = for {
-            fibers  <- ZIO.foreach(1 until 10)(num => fail_effect(num).fork)
+            fibers  <- ZIO.foreach((1 until 10).toList)(num => faillibleEffect(num).fork)
             results <- ZIO.foreach(fibers)(_.await)
             _ <- ZIO.foreach(results)(res => res.foldZIO(
                 e => ZIO.debug("The fiber has failed with: " + e),
@@ -82,8 +83,8 @@ object TheFiberModel {
 
     object Question5 {
 
-        def criticalOperation(phase: String): ZIO[Any, Nothing, Unit] = 
-            ZIO.attemp(while(true) { Thread.sleep (100)}).uninterruptible
+        def criticalOperation: ZIO[Any, Throwable, Unit] = 
+            ZIO.attempt(while(true) { Thread.sleep (100)}).uninterruptible
 
         def run = for {
             fiber <- criticalOperation.fork
@@ -136,7 +137,7 @@ object TheFiberModel {
             for {
                 parentfiber <- parent.fork
                 _ <- ZIO.sleep(1.second)
-                _ <- fiber.interrupt
+                _ <- parentfiber.interrupt
                 _ <- ZIO.sleep(3.seconds)
                 _ <- printLine("---- Program complete ----").orDie
             } yield ()
