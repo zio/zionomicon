@@ -66,7 +66,8 @@ package TestingZIOPrograms {
         for {
           currentTime   <- Clock.currentTime(TimeUnit.MILLISECONDS)
           expirationTime = currentTime + expiration
-          _             <- storage.update(_.updated(key, CacheEntry(value, expirationTime)))
+          _ <-
+            storage.update(_.updated(key, CacheEntry(value, expirationTime)))
         } yield ()
 
       def get(key: K): ZIO[Any, Nothing, Option[V]] =
@@ -529,7 +530,8 @@ package TestingZIOPrograms {
               Gen.listOf(Gen.int(-100, 100)),
               Gen.listOf(Gen.int(-100, 100))
             ) { (insertList, deleteList) =>
-              val tree           = insertList.foldLeft(AVLTree.empty[Int])(AVLTree.insert)
+              val tree =
+                insertList.foldLeft(AVLTree.empty[Int])(AVLTree.insert)
               val afterDeletions = deleteList.foldLeft(tree)(AVLTree.delete)
 
               assertTrue(
