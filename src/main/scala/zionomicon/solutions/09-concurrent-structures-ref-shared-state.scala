@@ -252,9 +252,8 @@ package RefSharedState {
    *     ```
    */
   object AdvancedNestedLoggerImpl {
-    import java.time.Instant
+    import java.time.{Instant, ZoneId}
     import java.time.format.DateTimeFormatter
-    import java.time.ZoneId
 
     case class LogEntry(timestamp: Instant, fiberId: String, message: String)
 
@@ -330,4 +329,148 @@ package RefSharedState {
         _   <- Console.printLine(log)
       } yield ()
   }
+
+  /**
+   *   6. Create a more advanced logging system that supports different log
+   *      levels. It also should support regional settings for log levels so
+   *      that the user can change the log level for a specific region of the
+   *      application:
+   *
+   *     ```scala
+   *     trait Logger {
+   *       def log(message: String): UIO[Unit]
+   *       def withLogLevel[R, E, A](level: LogLevel)(
+   *         zio: ZIO[R, E, A]
+   *       ): ZIO[R, E, A]
+   *     }
+   *     ```
+   */
+
+  import java.time.{Instant, ZoneId}
+  import java.time.format.DateTimeFormatter
+
+  object AdvancedLoggingSystemWithLogLevel {
+    // Log levels with ordering
+    sealed trait LogLevel extends Product with Serializable {
+      def level: Int
+
+      def name: String
+    }
+
+    object LogLevel {
+      case object Debug extends LogLevel {
+        val level = 0;
+        val name  = "DEBUG"
+      }
+
+      case object Info extends LogLevel {
+        val level = 1;
+        val name  = "INFO"
+      }
+
+      case object Warn extends LogLevel {
+        val level = 2;
+        val name  = "WARN"
+      }
+
+      case object Error extends LogLevel {
+        val level = 3;
+        val name  = "ERROR"
+      }
+
+      implicit val ordering: Ordering[LogLevel] = Ordering.by(_.level)
+    }
+
+    // Enhanced log entry with log level
+    case class LogEntry(
+      timestamp: Instant,
+      fiberId: String,
+      level: LogLevel,
+      message: String
+    )
+
+    sealed trait LogNode
+    case class Message(entry: LogEntry)       extends LogNode
+    case class Child(entries: Chunk[LogNode]) extends LogNode
+
+    case class Logger private (
+      private val logs: FiberRef[Chunk[LogNode]],
+      private val currentLevel: FiberRef[LogLevel]
+    ) {
+
+      private def logWithLevel(level: LogLevel, message: String): UIO[Unit] =
+        for {
+          threshold <- currentLevel.get
+          _ <- ZIO.when(level.level >= threshold.level) {
+                 for {
+                   timestamp <- Clock.instant
+                   fiberId   <- ZIO.fiberId.map(_.id).map(id => s"Fiber-$id")
+                   entry      = LogEntry(timestamp, fiberId, level, message)
+                   _         <- logs.update(_ :+ Message(entry))
+                 } yield ()
+               }
+        } yield ()
+
+      def log(message: String): UIO[Unit] = info(message)
+
+      def debug(message: String): UIO[Unit] =
+        logWithLevel(LogLevel.Debug, message)
+
+      def info(message: String): UIO[Unit] =
+        logWithLevel(LogLevel.Info, message)
+
+      def warn(message: String): UIO[Unit] =
+        logWithLevel(LogLevel.Warn, message)
+
+      def error(message: String): UIO[Unit] =
+        logWithLevel(LogLevel.Error, message)
+
+      def withLogLevel[R, E, A](level: LogLevel)(
+        zio: ZIO[R, E, A]
+      ): ZIO[R, E, A] =
+        currentLevel.locally(level)(zio)
+
+      def render: ZIO[Any, Nothing, String] = {
+        val formatter = DateTimeFormatter
+          .ofPattern("yyyy-MM-dd HH:mm:ss")
+          .withZone(ZoneId.systemDefault())
+
+        def renderLog(log: Chunk[LogNode], indent: Int): Chunk[String] = {
+          val indentStr = " " * indent
+          log.flatMap {
+            case Message(LogEntry(timestamp, fiberId, level, message)) =>
+              val timestampStr = formatter.format(timestamp)
+              val levelStr     = f"${level.name}%-5s" // Left-aligned, 5 chars wide
+              Chunk(
+                s"${indentStr}[$timestampStr][$fiberId][$levelStr] $message"
+              )
+            case Child(childLog) =>
+              renderLog(childLog, indent + 2)
+          }
+        }
+
+        logs.get.map(renderLog(_, 0).mkString("\n"))
+      }
+    }
+
+    object Logger {
+      def make(
+        defaultLevel: LogLevel = LogLevel.Info
+      ): ZIO[Any, Nothing, Logger] =
+        ZIO.scoped {
+          for {
+            logsRef <- ZIO.scoped {
+                         FiberRef.make[Chunk[LogNode]](
+                           initial = Chunk.empty,
+                           fork = _ => Chunk.empty,
+                           join =
+                             (parent, child) => parent ++ Chunk(Child(child))
+                         )
+                       }
+            levelRef <- FiberRef.make(defaultLevel)
+          } yield Logger(logsRef, levelRef)
+        }
+    }
+  }
+
 }
