@@ -85,4 +85,97 @@ package PromiseWorkSynchronization {
 
   }
 
+  /**
+   *   2. Similar to the previous exercise, you can implement `CyclicBarrier`. A
+   *      cyclic barrier is a synchronization aid that allows a set of threads
+   *      to all wait for each other to reach a common barrier point. Once all
+   *      threads have reached the barrier, they can proceed:
+   *
+   *     ```scala mdoc:invisible
+   *     trait CyclicBarrier {
+   *       def await: UIO[Unit]
+   *       def reset: UIO[Unit]
+   *     }
+   *
+   *     object CyclicBarrier {
+   *       def make(parties: Int): UIO[CyclicBarrier] = ???
+   *     }
+   * ```
+   */
+  package CyclicBarrierImpl {
+
+    import zio._
+
+    // Please note that this is an educational implementation and may not
+    // be suitable for production use. If you want a well-tested and robust
+    // implementation, consider using the `zio.concurrent.CyclicBarrier`
+    // provided by ZIO.
+    final case class CyclicBarrier(
+      parties: Int,
+      waiting: Ref[Int],
+      promise: Ref[Promise[Nothing, Unit]]
+    ) {
+      def await: UIO[Unit] =
+        for {
+          currentPromise <- promise.get
+          shouldRelease <- waiting.modify { current =>
+                             val newWaiting = current + 1
+                             if (newWaiting == parties) {
+                               // Last thread to arrive - release everyone and reset
+                               (true, 0)
+                             } else {
+                               // Not the last thread - keep waiting
+                               (false, newWaiting)
+                             }
+                           }
+          _ <- if (shouldRelease) {
+                 // Complete the current promise to release all waiting threads
+                 currentPromise.succeed(()).unit *>
+                   // Create a new promise for the next cycle
+                   Promise
+                     .make[Nothing, Unit]
+                     .flatMap(newPromise => promise.set(newPromise))
+               } else {
+                 // Wait for all threads to arrive
+                 currentPromise.await
+               }
+        } yield ()
+
+      def reset: UIO[Unit] =
+        for {
+          _          <- waiting.set(0)
+          newPromise <- Promise.make[Nothing, Unit]
+          _          <- promise.set(newPromise)
+        } yield ()
+    }
+
+    object CyclicBarrier {
+      def make(parties: Int): UIO[CyclicBarrier] =
+        if (parties <= 0)
+          ZIO.die(new IllegalArgumentException("parties must be positive"))
+        else
+          for {
+            waiting        <- Ref.make(0)
+            initialPromise <- Promise.make[Nothing, Unit]
+            promiseRef     <- Ref.make(initialPromise)
+          } yield CyclicBarrier(parties, waiting, promiseRef)
+    }
+
+    object CyclicBarrierExample extends ZIOAppDefault {
+      def run =
+        for {
+          barrier <- CyclicBarrier.make(3)
+          _ <- ZIO.foreachPar(1 to 3) { i =>
+                 for {
+                   _ <- ZIO.debug(s"Job $i: Starting work...")
+                   _ <- ZIO.sleep(i.seconds)
+                   _ <- ZIO.debug(s"Job $i: Reaching barrier...")
+                   _ <- barrier.await
+                   _ <- ZIO.debug(s"Job $i: Passed barrier!")
+                 } yield ()
+               }
+        } yield ()
+    }
+
+  }
 }
