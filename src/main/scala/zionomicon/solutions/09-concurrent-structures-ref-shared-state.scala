@@ -170,18 +170,18 @@ package RefSharedState {
 
   object NestedLoggerRendererImpl {
 
-    sealed trait LogEntry
+    sealed trait LogNode
 
-    case class Message(content: String) extends LogEntry
+    case class Message(content: String) extends LogNode
 
-    case class Child(entries: Chunk[LogEntry]) extends LogEntry
+    case class Child(entries: Chunk[LogNode]) extends LogNode
 
-    case class Logger private (private val logs: FiberRef[Chunk[LogEntry]]) {
+    case class Logger private (private val logs: FiberRef[Chunk[LogNode]]) {
       def log(message: String): UIO[Unit] =
         logs.update(_ :+ Message(message))
 
       def render: ZIO[Any, Nothing, String] = {
-        def renderLog(log: Chunk[LogEntry], indent: Int): Chunk[String] = {
+        def renderLog(log: Chunk[LogNode], indent: Int): Chunk[String] = {
           val indentStr = " " * indent
           log.flatMap {
             case Message(content) => Chunk(indentStr + content)
@@ -197,7 +197,7 @@ package RefSharedState {
       def make: ZIO[Any, Nothing, Logger] =
         ZIO.scoped {
           FiberRef
-            .make[Chunk[LogEntry]](
+            .make[Chunk[LogNode]](
               initial = Chunk.empty,
               fork = _ => Chunk.empty,
               join = (parent, child) => parent ++ Chunk(Child(child))
@@ -227,4 +227,107 @@ package RefSharedState {
       } yield ()
   }
 
+  /**
+   *   5. Change the log model and use a more detailed one instead of just a
+   *      `String`, so that you can implement an advanced log renderer that adds
+   *      timestamps and fiber IDs, like the following output:
+   *
+   *     ```scala
+   *     [2024-01-01 10:00:01][fiber-1] Child foo
+   *       [2024-01-01 10:00:02][fiber-2] Got 1
+   *       [2024-01-01 10:00:03][fiber-2] Got 2
+   *     [2024-01-01 10:00:01][fiber-1] Child bar
+   *       [2024-01-01 10:00:02][fiber-3] Got 3
+   *       [2024-01-01 10:00:03][fiber-3] Got 4
+   *     ```
+   *
+   * Hint: You can use the following model for the log entry:
+   *
+   *     ```scala
+   *     case class LogEntry(
+   *       timestamp: java.time.Instant,
+   *       fiberId: String,
+   *       message: String
+   *     )
+   *     ```
+   */
+  object AdvancedNestedLoggerImpl {
+    import java.time.Instant
+    import java.time.format.DateTimeFormatter
+    import java.time.ZoneId
+
+    case class LogEntry(timestamp: Instant, fiberId: String, message: String)
+
+    sealed trait LogNode
+
+    case class Message(entry: LogEntry) extends LogNode
+
+    case class Child(entries: Chunk[LogNode]) extends LogNode
+
+    case class Logger private (private val logs: FiberRef[Chunk[LogNode]]) {
+      def log(message: String): UIO[Unit] =
+        for {
+          timestamp <- Clock.instant
+          fiberId   <- ZIO.fiberId.map(_.id.toString).map(id => s"fiber-$id")
+          entry      = LogEntry(timestamp, fiberId, message)
+          _         <- logs.update(_ :+ Message(entry))
+        } yield ()
+
+      def render: ZIO[Any, Nothing, String] = {
+        val formatter = DateTimeFormatter
+          .ofPattern("yyyy-MM-dd HH:mm:ss")
+          .withZone(ZoneId.systemDefault())
+
+        def renderLog(log: Chunk[LogNode], indent: Int): Chunk[String] = {
+          val indentStr = " " * indent
+          log.flatMap {
+            case Message(LogEntry(timestamp, fiberId, message)) =>
+              val timestampStr = formatter.format(timestamp)
+              Chunk(s"$indentStr[$timestampStr][$fiberId] $message")
+            case Child(childLog) =>
+              renderLog(childLog, indent + 2)
+          }
+        }
+
+        logs.get.map(renderLog(_, 0).mkString("\n"))
+      }
+    }
+
+    object Logger {
+      def make: ZIO[Any, Nothing, Logger] =
+        ZIO.scoped {
+          FiberRef
+            .make[Chunk[LogNode]](
+              initial = Chunk.empty,
+              fork = _ => Chunk.empty,
+              join = (parent, child) => parent ++ Chunk(Child(child))
+            )
+            .map(Logger(_))
+        }
+    }
+  }
+
+  object AdvancedMain extends ZIOAppDefault {
+
+    import AdvancedNestedLoggerImpl._
+
+    def run =
+      for {
+        logger <- Logger.make
+        _      <- logger.log("Starting application...")
+        _ <- {
+               for {
+                 _ <- logger.log("Initializing components...")
+                 // Small delay to show different timestamps
+                 _ <- ZIO.sleep(100.millis)
+                 _ <- logger.log("Configuring components...")
+                 _ <- ZIO.sleep(100.millis)
+                 _ <- logger.log("Setting up services...")
+               } yield ()
+             }.fork.flatMap(_.join)
+        _   <- logger.log("Application started successfully.")
+        log <- logger.render
+        _   <- Console.printLine(log)
+      } yield ()
+  }
 }
