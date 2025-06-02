@@ -178,4 +178,188 @@ package PromiseWorkSynchronization {
     }
 
   }
+
+  /**
+   *   3. Implement a concurrent bounded queue using `Ref` and `Promise`. It
+   *      should support enqueueing and dequeueing operations, blocking when the
+   *      queue is full or empty:
+   *
+   *     ```scala
+   *     trait Queue[A] {
+   *       def offer(a: A): UIO[Unit]
+   *       def take: UIO[A]
+   *     }
+   *
+   *     object Queue {
+   *       def make[A](capacity: Int): UIO[Queue[A]] = ???
+   *     }
+   *     ```
+   */
+
+  // Please note that this is an educational implementation and may not be
+  // suitable for production use. If you want a well-tested and robust
+  // implementation, consider using the `zio.Queue.bounded` provided by ZIO.
+  package BoundedQueueExercise {
+    import zio._
+
+    final case class BoundedQueue[A] private (
+      capacity: Int,
+      state: Ref[BoundedQueue.State[A]]
+    ) extends Queue[A] {
+      import BoundedQueue._
+
+      def offer(a: A): UIO[Unit] =
+        Promise.make[Nothing, Unit].flatMap { promise =>
+          state.modify {
+            case State(queue, waitingConsumers, waitingProducers) =>
+              if (waitingConsumers.nonEmpty) {
+                // There are waiting consumers, give the item directly to the first one
+                val (consumer, remainingConsumers) =
+                  (waitingConsumers.head, waitingConsumers.tail)
+                val effect = consumer.succeed(a).unit
+                (effect, State(queue, remainingConsumers, waitingProducers))
+              } else if (queue.size < capacity) {
+                // Queue has space, add the item
+                (
+                  ZIO.unit,
+                  State(queue.enqueue(a), waitingConsumers, waitingProducers)
+                )
+              } else {
+                // Queue is full, producer must wait
+                (
+                  promise.await,
+                  State(
+                    queue,
+                    waitingConsumers,
+                    waitingProducers.enqueue((a, promise))
+                  )
+                )
+              }
+          }.flatten
+        }
+
+      def take: UIO[A] =
+        Promise.make[Nothing, A].flatMap { promise =>
+          state.modify {
+            case State(queue, waitingConsumers, waitingProducers) =>
+              if (queue.nonEmpty) {
+                // Queue has items
+                val (item, remainingQueue) = queue.dequeue
+
+                if (waitingProducers.nonEmpty) {
+                  // There are waiting producers, take their item and let them proceed
+                  val ((producerItem, producerPromise), remainingProducers) =
+                    waitingProducers.dequeue
+                  val effect   = producerPromise.succeed(()).as(item)
+                  val newQueue = remainingQueue.enqueue(producerItem)
+                  (
+                    effect,
+                    State(newQueue, waitingConsumers, remainingProducers)
+                  )
+                } else {
+                  // No waiting producers
+                  (
+                    ZIO.succeed(item),
+                    State(remainingQueue, waitingConsumers, waitingProducers)
+                  )
+                }
+              } else {
+                // Queue is empty, consumer must wait
+                val effect = promise.await
+                (
+                  effect,
+                  State(
+                    queue,
+                    waitingConsumers.enqueue(promise),
+                    waitingProducers
+                  )
+                )
+              }
+          }.flatten
+        }
+
+      // Additional utility methods
+      def size: UIO[Int] =
+        state.get.map(_.queue.size)
+
+      def isEmpty: UIO[Boolean] =
+        state.get.map(_.queue.isEmpty)
+
+      def isFull: UIO[Boolean] =
+        state.get.map(_.queue.size >= capacity)
+    }
+
+    object BoundedQueue {
+
+      case class State[A](
+        queue: scala.collection.immutable.Queue[A],
+        waitingConsumers: scala.collection.immutable.Queue[Promise[Nothing, A]],
+        waitingProducers: scala.collection.immutable.Queue[
+          (A, Promise[Nothing, Unit])
+        ]
+      )
+
+      def make[A](capacity: Int): UIO[BoundedQueue[A]] =
+        if (capacity <= 0)
+          ZIO.die(new IllegalArgumentException("capacity must be positive"))
+        else
+          Ref
+            .make(
+              State[A](
+                scala.collection.immutable.Queue.empty,
+                scala.collection.immutable.Queue.empty,
+                scala.collection.immutable.Queue.empty
+              )
+            )
+            .map(BoundedQueue(capacity, _))
+    }
+
+    trait Queue[A] {
+      def offer(a: A): UIO[Unit]
+
+      def take: UIO[A]
+    }
+
+    object Queue {
+      def make[A](capacity: Int): UIO[Queue[A]] =
+        BoundedQueue.make(capacity)
+    }
+
+    // Example usage
+    object BoundedQueueExample extends ZIOAppDefault {
+      def run =
+        for {
+          queue <- BoundedQueue.make[Int](3)
+
+          // Producer fiber that will block when the queue is full
+          producer <- ZIO
+                        .foreachPar(1 to 5) { i =>
+                          for {
+                            _ <- ZIO.debug(s"Offering $i")
+                            _ <- queue.offer(i)
+                            _ <- ZIO.debug(s"Offered $i successfully")
+                          } yield ()
+                        }
+                        .fork
+
+          consumer <- ZIO
+                        .foreachPar(1 to 5) { _ =>
+                          for {
+                            _ <- ZIO.debug("Taking from queue...")
+                            v <- queue.take
+                            _ <- ZIO.debug(s"Took $v from queue")
+                            _ <- ZIO.sleep(500.millis)
+                          } yield ()
+                        }
+                        .fork
+
+          _ <- producer.join
+          _ <- consumer.join
+
+          _ <- ZIO.debug("All done!")
+        } yield ()
+    }
+
+  }
+
 }
