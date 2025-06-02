@@ -199,7 +199,7 @@ package PromiseWorkSynchronization {
   // Please note that this is an educational implementation and may not be
   // suitable for production use. If you want a well-tested and robust
   // implementation, consider using the `zio.Queue.bounded` provided by ZIO.
-  package BoundedQueueExercise {
+  package BoundedQueueImpl {
     import zio._
 
     final case class BoundedQueue[A] private (
