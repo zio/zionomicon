@@ -13,7 +13,7 @@ object FirstStepsWithZIO {
     def readFile(file: String): String = {
       val source = scala.io.Source.fromFile(file)
 
-      try source.getLines.mkString
+      try source.getLines().mkString
       finally source.close()
     }
 

@@ -1,7 +1,5 @@
 package zionomicon.exercises
 
-import zio._
-
 object TheFiberModel {
 
   /*

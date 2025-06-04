@@ -13,7 +13,7 @@ object FirstStepsWithZIO {
     def readFile(file: String): String = {
       val source = scala.io.Source.fromFile(file)
 
-      try source.getLines.mkString
+      try source.getLines().mkString
       finally source.close()
     }
 
@@ -63,7 +63,7 @@ object FirstStepsWithZIO {
   object Exercise4 {
 
     def printLine(line: String) = ZIO.attempt(println(line))
-    val readLine                = ZIO.attempt(scala.io.StdIn.readLine())
+    val readLine: Task[String]  = ZIO.attempt(scala.io.StdIn.readLine())
 
     for {
       _    <- printLine("What is your name?")
@@ -178,14 +178,12 @@ object FirstStepsWithZIO {
         for {
           args <- ZIOAppArgs.getArgs
           _    <- cat(args)
-        } yield Unit
+        } yield ()
 
-      def cat(files: Chunk[String]) = {
-        import zio.ChunkCanBuildFrom._
+      def cat(files: Chunk[String]) =
         ZIO.foreach(files) { file =>
           readFileZio(file).flatMap(printLine)
         }
-      }
     }
   }
 
