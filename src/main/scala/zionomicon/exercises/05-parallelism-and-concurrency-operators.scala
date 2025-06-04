@@ -1,6 +1,5 @@
 package zionomicon.exercises
 
-
 object TheFiberModel {
 
   /*
