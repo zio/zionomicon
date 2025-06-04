@@ -5,7 +5,8 @@ inThisBuild {
     ciReleaseJobs              := Seq.empty,
     ciCheckWebsiteBuildProcess := Seq.empty,
     ciPostReleaseJobs          := Seq.empty,
-    ciUpdateReadmeJobs         := Seq.empty
+    ciUpdateReadmeJobs         := Seq.empty,
+    crossScalaVersions         := Seq("2.13.16")
   )
 }
 
