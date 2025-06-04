@@ -1,5 +1,7 @@
 inThisBuild {
   Seq(
+    name                       := "zionomicon-exercises",
+    scalaVersion               := "2.13.16",
     ciReleaseJobs              := Seq.empty,
     ciCheckWebsiteBuildProcess := Seq.empty,
     ciPostReleaseJobs          := Seq.empty,
@@ -19,3 +21,7 @@ libraryDependencies ++= Seq(
 scalacOptions ++= Seq(
   "-deprecation"
 )
+
+stdSettings()
+
+enablePlugins(ZioSbtCiPlugin, ZioSbtEcosystemPlugin)
