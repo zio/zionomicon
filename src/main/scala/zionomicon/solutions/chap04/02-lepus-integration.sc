@@ -20,8 +20,6 @@
 // 2. Run with scala-cli:
 //    scala-cli run 02-lepus-integration.scala
 
-package zionomicon.solutions.chap04
-
 import lepus.client.*
 import lepus.protocol.domains.*
 import zio.interop.catz.*

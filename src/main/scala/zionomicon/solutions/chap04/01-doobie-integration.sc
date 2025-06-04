@@ -19,8 +19,6 @@
 //> using dep "org.tpolecat::doobie-hikari:1.0.0-RC9"
 //> using dep "org.xerial:sqlite-jdbc:3.49.1.0"
 
-package zionomicon.solutions.chap04
-
 import com.zaxxer.hikari.HikariConfig
 import doobie._
 import doobie.hikari._
