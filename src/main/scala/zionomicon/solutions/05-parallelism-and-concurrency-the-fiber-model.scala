@@ -2,7 +2,7 @@ package zionomicon.solutions
 
 import zio._
 
-package TheFiberModel {
+object TheFiberModel_Solutions {
 
   /*
         1. Write a ZIO program that forks two effects, one that prints “Hello” after a two-
@@ -62,14 +62,14 @@ package TheFiberModel {
    */
 
   object Question4 {
-    val faillibleEffect = (n: Int) =>
+    val faillible_Effect = (n: Int) =>
       ZIO.attempt(n / (n - 1)).refineOrDie { case _: ArithmeticException =>
         "Division by zero"
       }
 
     def run = for {
       fibers <-
-        ZIO.foreach((1 until 10).toList)(num => faillibleEffect(num).fork)
+        ZIO.foreach((1 until 10).toList)(num => faillible_Effect(num).fork)
       results <- ZIO.foreach(fibers)(_.await)
       _ <- ZIO.foreach(results)(res =>
              res.foldZIO(
