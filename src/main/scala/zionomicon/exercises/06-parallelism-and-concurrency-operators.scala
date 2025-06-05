@@ -3,6 +3,7 @@ package zionomicon.exercises
 package zionomicon.exercises
 
 import zio._
+
 import java.net.URL
 
 object ConcurrencyOperators {
