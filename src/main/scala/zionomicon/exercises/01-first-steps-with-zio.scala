@@ -167,8 +167,6 @@ object FirstStepsWithZIO {
    */
   object Exercise10 {
 
-    import java.io.IOException
-
     object Cat extends ZIOAppDefault {
 
       val run =
@@ -177,7 +175,7 @@ object FirstStepsWithZIO {
           _    <- cat(args)
         } yield ()
 
-      def cat(files: Chunk[String]): ZIO[Any, IOException, Unit] =
+      def cat(files: Chunk[String]): ZIO[Any, Throwable, Unit] =
         ???
     }
   }
