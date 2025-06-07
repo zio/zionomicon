@@ -3,9 +3,6 @@ package zionomicon.exercises
 package ParallelismAndConcurrencyOperators {
   import zio._
 
-  import java.net.URI
-  import scala.collection.compat.toTraversableLikeExtensionMethods
-
   /**
    *   1. Implement the `collectAllPar` combinator using `foreachPar`.
    */
