@@ -167,8 +167,6 @@ object FirstStepsWithZIO {
    */
   object Exercise10 {
 
-    import java.io.IOException
-
     object Cat extends ZIOAppDefault {
 
       val run =
