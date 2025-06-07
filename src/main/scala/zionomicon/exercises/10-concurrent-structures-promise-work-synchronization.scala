@@ -22,9 +22,7 @@ package PromiseWorkSynchronization {
    *     ```
    */
 
-  package CountDownLatchImpl {
-
-  }
+  package CountDownLatchImpl {}
 
   /**
    *   2. Similar to the previous exercise, you can implement `CyclicBarrier`. A
@@ -43,10 +41,7 @@ package PromiseWorkSynchronization {
    *     }
    * ```
    */
-  package CyclicBarrierImpl {
-
-
-  }
+  package CyclicBarrierImpl {}
 
   /**
    *   3. Implement a concurrent bounded queue using `Ref` and `Promise`. It
@@ -68,8 +63,5 @@ package PromiseWorkSynchronization {
   // Please note that this is an educational implementation and may not be
   // suitable for production use. If you want a well-tested and robust
   // implementation, consider using the `zio.Queue.bounded` provided by ZIO.
-  package BoundedQueueImpl {
-
-
-  }
+  package BoundedQueueImpl {}
 }
