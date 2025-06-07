@@ -459,14 +459,11 @@ package RefSharedState {
       ): ZIO[Any, Nothing, Logger] =
         ZIO.scoped {
           for {
-            logsRef <- ZIO.scoped {
-                         FiberRef.make[Chunk[LogNode]](
-                           initial = Chunk.empty,
-                           fork = _ => Chunk.empty,
-                           join =
-                             (parent, child) => parent ++ Chunk(Child(child))
-                         )
-                       }
+            logsRef <- FiberRef.make[Chunk[LogNode]](
+                         initial = Chunk.empty,
+                         fork = _ => Chunk.empty,
+                         join = (parent, child) => parent ++ Chunk(Child(child))
+                       )
             levelRef <- FiberRef.make(defaultLevel)
           } yield Logger(logsRef, levelRef)
         }
