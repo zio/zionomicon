@@ -1,5 +1,3 @@
-package zionomicon.exercises.chap04
-
 /**
  *   2. Write a ZIO program that uses lepus to connect to RabbitMQ server and
  *      publish arbitrary messages to a queue. Lepus is a purely functional

@@ -1,5 +1,3 @@
-package zionomicon.exercises.chap04
-
 /**
  *   1. Create a ZIO program that uses Doobie to perform a database operation.
  *      Implement a function that inserts a user into a database and returns
