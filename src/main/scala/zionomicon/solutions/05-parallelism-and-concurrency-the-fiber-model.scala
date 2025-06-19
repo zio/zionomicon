@@ -62,14 +62,14 @@ object TheFiberModel_Solutions {
    */
 
   object Question4 {
-    val faillible_Effect = (n: Int) =>
+    val faillibleEffect = (n: Int) =>
       ZIO.attempt(n / (n - 1)).refineOrDie { case _: ArithmeticException =>
         "Division by zero"
       }
 
     def run = for {
       fibers <-
-        ZIO.foreach((1 until 10).toList)(num => faillible_Effect(num).fork)
+        ZIO.foreach((1 until 10).toList)(num => faillibleEffect(num).fork)
       results <- ZIO.foreach(fibers)(_.await)
       _ <- ZIO.foreach(results)(res =>
              res.foldZIO(
