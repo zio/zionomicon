@@ -2,7 +2,7 @@ package zionomicon.solutions
 
 import zio._
 
-package TheFiberModel {
+object TheFiberModel_Solutions {
 
   /*
         1. Write a ZIO program that forks two effects, one that prints “Hello” after a two-
