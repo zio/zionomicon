@@ -5,7 +5,7 @@ import zio._
 import java.net.URL
 
 object ConcurrencyOperators {
-  
+
   def foreachPar[R, E, A, B](
     in: Iterable[A]
   )(f: A => ZIO[R, E, B]): ZIO[R, E, List[B]] =
@@ -41,29 +41,32 @@ object ConcurrencyOperators {
    */
   def fetchUrl(url: URL): ZIO[Any, Throwable, String] = ???
 
-  
   def fetchAllUrlsPar(
-      urls: List[String]
+    urls: List[String]
   ): ZIO[Any, Nothing, (List[(URL, Throwable)], List[(URL, String)])] =
-      for {
-          validUrls <- foreachPar(urls)(url => 
-                  ZIO.attempt(new URL(url))
-                      .fold(
-                          _   => Left(url),
-                          url => Right(url)
-                      )
-              )
-          data <- ZIO.foreachPar(validUrls) { url =>
-                      url match {
-                          case Left(invalid) => ZIO.succeed(Left(new URL(invalid) -> new Throwable("Invalid URL")))
-                          case Right(url) => 
-                              fetchUrl(url).fold(
-                                  err  => Left(url -> err),
-                                  data => Right(url -> data)
-                              )
-                      }
-                        
-                  }
-      } yield data.partitionMap(identity)
+    for {
+      validUrls <- foreachPar(urls)(url =>
+                     ZIO
+                       .attempt(new URL(url))
+                       .fold(
+                         _ => Left(url),
+                         url => Right(url)
+                       )
+                   )
+      data <- ZIO.foreachPar(validUrls) { url =>
+                url match {
+                  case Left(invalid) =>
+                    ZIO.succeed(
+                      Left(new URL(invalid) -> new Throwable("Invalid URL"))
+                    )
+                  case Right(url) =>
+                    fetchUrl(url).fold(
+                      err => Left(url -> err),
+                      data => Right(url -> data)
+                    )
+                }
+
+              }
+    } yield data.partitionMap(identity)
 
 }
