@@ -2,7 +2,7 @@ package zionomicon.solutions
 
 import zio._
 
-import java.net.URL
+import java.net._
 
 object ConcurrencyOperators {
 
@@ -41,32 +41,36 @@ object ConcurrencyOperators {
    */
   def fetchUrl(url: URL): ZIO[Any, Throwable, String] = ???
 
+  case class InvalidUrl(url: Throwable)
+
   def fetchAllUrlsPar(
     urls: List[String]
   ): ZIO[Any, Nothing, (List[(URL, Throwable)], List[(URL, String)])] =
     for {
-      validUrls <- foreachPar(urls)(url =>
-                     ZIO
-                       .attempt(new URL(url))
-                       .fold(
-                         _ => Left(url),
-                         url => Right(url)
-                       )
-                   )
-      data <- ZIO.foreachPar(validUrls) { url =>
-                url match {
-                  case Left(invalid) =>
-                    ZIO.succeed(
-                      Left(new URL(invalid) -> new Throwable("Invalid URL"))
-                    )
-                  case Right(url) =>
-                    fetchUrl(url).fold(
-                      err => Left(url -> err),
-                      data => Right(url -> data)
-                    )
-                }
+      createUrls <- foreachPar(urls)(url =>
+                       ZIO
+                         .attempt(URI.create(url).toURL())
+                         .fold(
+                           invalidUrl => Left(invalidUrl),
+                           url => Right(url)
+                         )
+                     )
+      validAndInvalidUrls <- foreachPar(createUrls) { url =>
+                      url match {
+                        case Left(invalid) =>
+                          ZIO.succeed(
+                            Left(
+                              InvalidUrl(invalid)
+                            )
+                          )
+                        case Right(url) =>
+                          fetchUrl(url).fold(
+                            fetchError => Left(url -> fetchError),
+                            content => Right(url -> content)
+                          )
+                      }
 
-              }
-    } yield data.partitionMap(identity)
+                    }
+    } yield validAndInvalidUrls.partitionMap(identity)
 
 }
