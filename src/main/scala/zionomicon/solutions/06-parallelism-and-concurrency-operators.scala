@@ -46,29 +46,29 @@ object ConcurrencyOperators {
   ): ZIO[Any, Nothing, (List[(URL, Throwable)], List[(URL, String)])] =
     for {
       parsedUrls <- foreachPar(urls)(url =>
-                       ZIO
-                         .attempt(URI.create(url).toURL())
-                         .fold(
+                      ZIO
+                        .attempt(URI.create(url).toURL())
+                        .fold(
                           invalidUrl => Left(invalidUrl),
-                          validUrl  => Right(validUrl)
-                         )
-                     )
+                          validUrl => Right(validUrl)
+                        )
+                    )
       validAndInvalidUrls <- foreachPar(parsedUrls) { url =>
-                      url match {
-                        case Left(invalid) =>
-                          ZIO.succeed(
-                            Left(
-                              url.toOption.get -> invalid
-                            )
-                          )
-                        case Right(url) =>
-                          fetchUrl(url).fold(
-                            fetchError => Left(url -> fetchError),
-                            content => Right(url -> content)
-                          )
-                      }
+                               url match {
+                                 case Left(invalid) =>
+                                   ZIO.succeed(
+                                     Left(
+                                       url.toOption.get -> invalid
+                                     )
+                                   )
+                                 case Right(url) =>
+                                   fetchUrl(url).fold(
+                                     fetchError => Left(url -> fetchError),
+                                     content => Right(url -> content)
+                                   )
+                               }
 
-                    }
+                             }
     } yield validAndInvalidUrls.partitionMap(identity)
 
 }
