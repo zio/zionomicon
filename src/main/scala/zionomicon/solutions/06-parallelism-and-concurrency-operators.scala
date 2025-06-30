@@ -45,7 +45,7 @@ object ConcurrencyOperators {
     urls: List[String]
   ): ZIO[Any, Nothing, (List[(URL, Throwable)], List[(URL, String)])] =
     for {
-      createUrls <- foreachPar(urls)(url =>
+      parsedUrls <- foreachPar(urls)(url =>
                        ZIO
                          .attempt(URI.create(url).toURL())
                          .fold(
@@ -53,12 +53,12 @@ object ConcurrencyOperators {
                           validUrl  => Right(validUrl)
                          )
                      )
-      validAndInvalidUrls <- foreachPar(createUrls) { url =>
+      validAndInvalidUrls <- foreachPar(parsedUrls) { url =>
                       url match {
                         case Left(invalid) =>
                           ZIO.succeed(
                             Left(
-                              url.right.get -> url.left.get
+                              url.toOption.get -> invalid
                             )
                           )
                         case Right(url) =>
