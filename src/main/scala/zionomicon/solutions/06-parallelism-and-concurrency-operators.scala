@@ -41,8 +41,6 @@ object ConcurrencyOperators {
    */
   def fetchUrl(url: URL): ZIO[Any, Throwable, String] = ???
 
-  case class InvalidUrl(url: Throwable)
-
   def fetchAllUrlsPar(
     urls: List[String]
   ): ZIO[Any, Nothing, (List[(URL, Throwable)], List[(URL, String)])] =
@@ -51,8 +49,8 @@ object ConcurrencyOperators {
                        ZIO
                          .attempt(URI.create(url).toURL())
                          .fold(
-                           invalidUrl => Left(invalidUrl),
-                           url => Right(url)
+                          invalidUrl => Left(invalidUrl),
+                          validUrl  => Right(validUrl)
                          )
                      )
       validAndInvalidUrls <- foreachPar(createUrls) { url =>
@@ -60,7 +58,7 @@ object ConcurrencyOperators {
                         case Left(invalid) =>
                           ZIO.succeed(
                             Left(
-                              InvalidUrl(invalid)
+                              url.right.get -> url.left.get
                             )
                           )
                         case Right(url) =>
