@@ -23,6 +23,21 @@ object ParallelismAndConcurrencyInterruptionInDepth extends ZIOSpecDefault {
                )
           value <- ref.get
         } yield assertTrue(value == 1)
+      } @@ nonFlaky,
+      test("uninterruptible") {
+        for {
+          ref   <- Ref.make(0)
+          latch <- Promise.make[Nothing, Unit]
+          fiber <- {
+                     latch.succeed(()) *>
+                       ZIO.uninterruptible {
+                         Live.live(ZIO.sleep(10.millis)) *>
+                           ref.update(_ + 1)
+                       }
+                   }.forkDaemon
+          _     <- latch.await *> fiber.interrupt
+          value <- ref.get
+        } yield assertTrue(value == 1)
       } @@ nonFlaky
     )
 }
