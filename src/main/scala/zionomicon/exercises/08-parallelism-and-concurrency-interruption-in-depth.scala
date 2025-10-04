@@ -1,13 +1,18 @@
 package zionomicon.exercises
 
+import zio._
 import zio.test.TestAspect._
 import zio.test._
-import zio._
 
-object ParallelismAndConcurrencyInterruptionInDepth extends ZIOSpecDefault {
+package ParallelismAndConcurrencyInterruptionInDepth {
 
-  override def spec =
-    suite("InterruptionInDepth")(
+  /**
+   * Find the right location to insert `ZIO.interruptible` to make the test
+   * succeed.
+   */
+  object Exercise1 extends ZIOSpecDefault {
+
+    override def spec =
       test("interruptible") {
         for {
           ref   <- Ref.make(0)
@@ -21,7 +26,15 @@ object ParallelismAndConcurrencyInterruptionInDepth extends ZIOSpecDefault {
                )
           value <- ref.get
         } yield assertTrue(value == 1)
-      } @@ nonFlaky,
+      } @@ nonFlaky
+  }
+
+  /**
+   * Find the right location to insert `ZIO.uninterruptible` to make the test
+   * succeed.
+   */
+  object Exercise2 extends ZIOSpecDefault {
+    override def spec =
       test("uninterruptible") {
         for {
           ref   <- Ref.make(0)
@@ -35,5 +48,40 @@ object ParallelismAndConcurrencyInterruptionInDepth extends ZIOSpecDefault {
           value <- ref.get
         } yield assertTrue(value == 1)
       } @@ nonFlaky
-    )
+
+  }
+
+  /**
+   * Implement `withFinalizer` without using `ZIO#ensuring`. If the given zio
+   * effect has not started, it can be interrupted. However, once it has
+   * started, the finalizer must be executed regardless of whether the `zio`
+   * effect succeeds, fails, or is interrupted:
+   *
+   * {{{
+   *   def withFinalizer[R, E, A](
+   *     zio: ZIO[R, E, A]
+   *   )(finalizer: UIO[Any]): ZIO[R, E, A] = ???
+   * }}}
+   *
+   * Write a test that checks the proper execution of the `finalizer` in the
+   * case the given `zio` effect is interrupted.
+   *
+   * Hint: use the `uninterruptibleMask` primitive to implement `withFinalizer`.
+   */
+  object Exercise3 extends ZIOSpecDefault {
+    override def spec = ???
+
+    def withFinalizer[R, E, A](
+      zio: ZIO[R, E, A]
+    )(finalizer: UIO[Any]): ZIO[R, E, A] = ???
+  }
+
+  /**
+   * Implement the `ZIO#disconnect` with the stuff you have learned in this
+   * chapter, then compare your implementation with the one in ZIO.
+   */
+  object Exercise4 {
+    def disconnect[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A] = ???
+  }
+
 }
