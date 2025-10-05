@@ -168,7 +168,7 @@ object FirstStepsWithZIO {
           _    <- cat(args)
         } yield ()
 
-      def cat(files: Chunk[String]): ZIO[Any, Throwable, Chunk[Unit]] =
+      def cat(files: Chunk[String]): ZIO[Any, Throwable, Unit] =
         ???
     }
   }
