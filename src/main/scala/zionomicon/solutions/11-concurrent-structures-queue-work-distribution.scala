@@ -203,17 +203,104 @@ package QueueWorkDistribution {
    *      interval:
    *
    * {{{
-   * trait RateLimiter {
-   *   def acquire: UIO[Unit]
-   *   def apply[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A]
-   * }
+   *      trait RateLimiter {
+   *        def acquire: UIO[Unit]
+   *        def apply[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A]
+   *      }
    *
-   * object RateLimiter {
-   *   def make(max: Int, interval: Duration): UIO[RateLimiter] = ???
-   * }
+   *      object RateLimiter {
+   *        def make(max: Int, interval: Duration): UIO[RateLimiter] = ???
+   *      }
    * }}}
    */
-  package RateLimiterImpl {}
+  package RateLimiterImpl {
+
+    import zio._
+
+    import java.util.concurrent.TimeUnit
+
+    trait RateLimiter {
+      def acquire: UIO[Unit]
+      def apply[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A]
+    }
+
+    object RateLimiter {
+      def make(max: Int, interval: Duration): UIO[RateLimiter] =
+        for {
+          // Create a bounded queue to hold permits (tokens)
+          permits <- Queue.bounded[Unit](max)
+          // Initially fill the queue with max permits
+          _ <- permits.offerAll(List.fill(max)(()))
+        } yield new RateLimiter {
+
+          def acquire: UIO[Unit] =
+            for {
+              // Take a permit from the queue (blocks if none available)
+              _ <- permits.take
+              // Schedule returning the permit after the interval expires
+              _ <-
+                (ZIO.sleep(interval) *> permits.offer(())).fork.uninterruptible
+            } yield ()
+
+          def apply[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A] =
+            acquire *> zio
+        }
+    }
+
+    object RateLimiterExample extends ZIOAppDefault {
+
+      def run =
+        for {
+          // Create rate limiter: max 5 requests per 10 seconds
+          rateLimiter <- RateLimiter.make(max = 5, interval = 10.seconds)
+
+          startTime <- Clock.currentTime(TimeUnit.MILLISECONDS)
+
+          // Submit 15 requests
+          _ <- ZIO.foreach(1 to 15) { i =>
+                 rateLimiter {
+                   for {
+                     now    <- Clock.currentTime(TimeUnit.MILLISECONDS)
+                     elapsed = now - startTime
+                     random <- Random.nextLongBetween(100, 500)
+
+                     _ <- ZIO.sleep(random.milliseconds)
+                     _ <- ZIO.debug(s"Request $i processed at ${elapsed}ms")
+                   } yield ()
+                 }
+               }
+
+          _ <- ZIO.debug("All requests completed")
+        } yield ()
+    }
+
+    object RateLimiterConcurrentExample extends ZIOAppDefault {
+
+      def run =
+        for {
+          // Rate limiter: 5 requests per 10 seconds
+          rateLimiter <- RateLimiter.make(max = 5, interval = 10.seconds)
+
+          startTime <- Clock.currentTime(TimeUnit.MILLISECONDS)
+
+          // Launch 15 concurrent requests
+          _ <- ZIO.foreachPar(1 to 15) { i =>
+                 rateLimiter {
+                   for {
+                     now    <- Clock.currentTime(TimeUnit.MILLISECONDS)
+                     elapsed = now - startTime
+                     random <- Random.nextLongBetween(100, 500)
+
+                     _ <- ZIO.sleep(random.milliseconds)
+                     _ <- ZIO.debug(s"Request $i processed at ${elapsed}ms")
+                   } yield ()
+                 }
+               }
+
+          _ <- ZIO.debug("All requests completed")
+        } yield ()
+    }
+  }
 
   /**
    *   3. Implement a circuit breaker that prevents calls to a service after a
