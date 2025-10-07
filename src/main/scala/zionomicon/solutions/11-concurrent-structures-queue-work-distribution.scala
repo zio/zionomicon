@@ -22,7 +22,9 @@ package QueueWorkDistribution {
 
     trait LoadBalancer[A] {
       def submit(work: A): Task[Unit]
+
       def shutdown: Task[Unit]
+
       def isShutdown: UIO[Boolean]
     }
 
@@ -221,6 +223,7 @@ package QueueWorkDistribution {
 
     trait RateLimiter {
       def acquire: UIO[Unit]
+
       def apply[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A]
     }
 
@@ -307,14 +310,210 @@ package QueueWorkDistribution {
    *      certain number of failures:
    *
    * {{{
-   * trait CircuitBreaker {
-   *   def protect[A](operation: => Task[A]): Task[A]
-   * }
+   *     trait CircuitBreaker {
+   *       def protect[A](operation: => Task[A]): Task[A]
+   *     }
    * }}}
    *
    * Hint: Use a sliding queue to store the results of the most recent
    * operations and track the number of failures.
    */
-  package CircuitBreakerImpl {}
+  package CircuitBreakerImpl {
+
+    import zio._
+    import java.time.Instant
+
+    sealed trait CircuitBreakerState
+
+    object CircuitBreakerState {
+      case object Closed   extends CircuitBreakerState
+      case object Open     extends CircuitBreakerState
+      case object HalfOpen extends CircuitBreakerState
+    }
+
+    case class CircuitBreakerConfig(
+      maxFailures: Int,
+      windowSize: Int,
+      resetTimeout: Duration
+    )
+
+    sealed trait OperationResult
+
+    object OperationResult {
+      case object Success extends OperationResult
+
+      case object Failure extends OperationResult
+    }
+
+    trait CircuitBreaker {
+      def protect[A](operation: => Task[A]): Task[A]
+
+      def getState: UIO[CircuitBreakerState]
+    }
+
+    object CircuitBreaker {
+
+      def make(config: CircuitBreakerConfig): UIO[CircuitBreaker] =
+        for {
+          stateRef <-
+            Ref.make[CircuitBreakerState](CircuitBreakerState.Closed)
+          resultsQueue <- Queue.sliding[OperationResult](
+                            config.windowSize
+                          ) // ← Sliding Queue!
+          openedAtRef <- Ref.make[Option[Instant]](None)
+        } yield new CircuitBreaker {
+
+          def protect[A](operation: => Task[A]): Task[A] =
+            for {
+              state <- stateRef.get
+              result <- state match {
+                          case CircuitBreakerState.Closed =>
+                            attemptOperation(operation, onSuccess, onFailure)
+
+                          case CircuitBreakerState.Open =>
+                            checkTimeout.flatMap { shouldRetry =>
+                              if (shouldRetry) {
+                                stateRef.set(CircuitBreakerState.HalfOpen) *>
+                                  attemptOperation(
+                                    operation,
+                                    onSuccessFromOpen,
+                                    onFailureFromOpen
+                                  )
+                              } else
+                                ZIO.fail(
+                                  new RuntimeException(
+                                    "Circuit breaker is OPEN!"
+                                  )
+                                )
+                            }
+
+                          case CircuitBreakerState.HalfOpen =>
+                            attemptOperation(
+                              operation,
+                              onSuccessFromOpen,
+                              onFailureFromOpen
+                            )
+                        }
+            } yield result
+
+          def getState: UIO[CircuitBreakerState] = stateRef.get
+
+          private def attemptOperation[A](
+            operation: => Task[A],
+            onSuccess: UIO[Unit],
+            onFailure: UIO[Unit]
+          ): Task[A] =
+            ZIO
+              .suspendSucceed(operation)
+              .tapBoth(
+                _ => onFailure,
+                _ => onSuccess
+              )
+
+          private val onSuccess: UIO[Unit] =
+            recordResult(OperationResult.Success)
+
+          private val onFailure: UIO[Unit] =
+            for {
+              _            <- recordResult(OperationResult.Failure)
+              failureCount <- countFailures
+              _ <- ZIO.when(failureCount >= config.maxFailures) {
+                     stateRef.set(CircuitBreakerState.Open) *>
+                       Clock.instant.flatMap(now => openedAtRef.set(Some(now)))
+                   }
+            } yield ()
+
+          private val onSuccessFromOpen: UIO[Unit] =
+            stateRef.set(CircuitBreakerState.Closed) *>
+              resultsQueue.takeAll *>
+              openedAtRef.set(None)
+
+          private val onFailureFromOpen: UIO[Unit] =
+            stateRef.set(CircuitBreakerState.Open) *>
+              Clock.instant.flatMap(now => openedAtRef.set(Some(now)))
+
+          private def recordResult(result: OperationResult): UIO[Unit] =
+            resultsQueue.offer(result).unit
+
+          private def countFailures: UIO[Int] =
+            resultsQueue.takeAll.flatMap { results =>
+              val failures = results.count(_ == OperationResult.Failure)
+              // Put results back
+              ZIO.foreach(results)(resultsQueue.offer).as(failures)
+            }
+
+          private def checkTimeout: UIO[Boolean] =
+            openedAtRef.get.flatMap {
+              case Some(openedAt) =>
+                Clock.instant.map { now =>
+                  val elapsed = java.time.Duration.between(openedAt, now)
+                  elapsed.toMillis >= config.resetTimeout.toMillis
+                }
+              case None => ZIO.succeed(false)
+            }
+        }
+    }
+
+    object CircuitBreakerExample extends ZIOAppDefault {
+      // Example usage
+      def example: ZIO[Any, Nothing, Unit] = {
+        val config = CircuitBreakerConfig(
+          maxFailures = 3,
+          windowSize = 10,
+          resetTimeout = 5.seconds
+        )
+
+        def unreliableService(failureRate: Double): Task[String] =
+          Random.nextDouble.flatMap { rand =>
+            if (rand < failureRate) {
+              ZIO.fail(new RuntimeException("Service failure"))
+            } else {
+              ZIO.succeed("Success!")
+            }
+          }
+
+        val program = for {
+          cb <- CircuitBreaker.make(config)
+
+          _ <- ZIO.debug("=== Testing Circuit Breaker ===")
+
+          _ <- ZIO.debug("\nPhase 1: Causing failures...")
+          _ <-
+            ZIO.foreach(1 to 5) { i =>
+              cb.protect(unreliableService(0.9))
+                .tap(s => ZIO.debug(s"Request $i: $s"))
+                .catchAll(e => ZIO.debug(s"Request $i failed: ${e.getMessage}"))
+                .zipRight(cb.getState.flatMap(s => ZIO.debug(s"  State: $s")))
+            }
+
+          _ <- ZIO.debug("\nPhase 2: Circuit is open...")
+          _ <- ZIO.foreach(1 to 3) { i =>
+                 cb.protect(unreliableService(0.1))
+                   .tap(s => ZIO.debug(s"Request $i: $s"))
+                   .catchAll(e =>
+                     ZIO.debug(s"Request $i rejected: ${e.getMessage}")
+                   )
+               }
+
+          _ <- ZIO.debug("\nPhase 3: Waiting for reset timeout...")
+          _ <- ZIO.sleep(6.seconds)
+
+          _ <- ZIO.debug("Attempting recovery...")
+          _ <-
+            ZIO.foreach(1 to 3) { i =>
+              cb.protect(unreliableService(0.1))
+                .tap(s => ZIO.debug(s"Request $i: $s"))
+                .catchAll(e => ZIO.debug(s"Request $i failed: ${e.getMessage}"))
+                .zipRight(cb.getState.flatMap(s => ZIO.debug(s"  State: $s")))
+            }
+
+        } yield ()
+
+        program
+      }
+
+      def run = example
+    }
+  }
 
 }
