@@ -396,28 +396,24 @@ package QueueWorkDistribution {
                                        failureCount = newFailureCount,
                                        resetFiber = Some(fiber)
                                      )
-                        } yield (Left(error): Either[Throwable, A], newState)
+                        } yield (Left(error), newState)
                       } else {
                         // Stay in Closed state
                         val newState =
                           cbState.copy(failureCount = newFailureCount)
                         ZIO.succeed(
-                          (Left(error): Either[Throwable, A], newState)
+                          (Left(error), newState)
                         )
                       }
                     case Right(success) =>
                       // Reset failure count and stay in Closed state
                       val newState = cbState.copy(failureCount = 0)
-                      ZIO.succeed(
-                        (Right(success): Either[Throwable, A], newState)
-                      )
+                      ZIO.succeed((Right(success), newState))
                   }.uninterruptible
 
                 case State.Open =>
                   // Reject immediately and stay in Open state
-                  ZIO.succeed(
-                    (Left(CircuitBreakerOpen()): Either[Throwable, A], cbState)
-                  )
+                  ZIO.succeed((Left(CircuitBreakerOpen()), cbState))
 
                 case State.HalfOpen =>
                   // Try operation in half-open state
@@ -437,7 +433,7 @@ package QueueWorkDistribution {
                                        failureCount = cbState.failureCount,
                                        resetFiber = Some(fiber)
                                      )
-                        } yield (Left(error): Either[Throwable, A], newState)
+                        } yield (Left(error), newState)
 
                       case Right(success) =>
                         // Transition to Closed and cancel reset
@@ -449,7 +445,7 @@ package QueueWorkDistribution {
                                        failureCount = 0,
                                        resetFiber = None
                                      )
-                        } yield (Right(success): Either[Throwable, A], newState)
+                        } yield (Right(success), newState)
                     }
                   }
               }
