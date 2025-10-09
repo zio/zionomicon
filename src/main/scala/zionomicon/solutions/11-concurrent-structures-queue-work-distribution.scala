@@ -409,7 +409,6 @@ package QueueWorkDistribution {
             } yield ()
 
           override def protect[A](operation: Task[A]): Task[A] =
-            // Use modify to atomically check state and decide action
             state.modify {
               case currentState@State.Closed =>
                 // Keep state as is, execute operation with callbacks
