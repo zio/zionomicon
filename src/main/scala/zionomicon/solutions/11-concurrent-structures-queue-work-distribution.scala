@@ -321,7 +321,7 @@ package QueueWorkDistribution {
   package CircuitBreakerImpl {
 
     package A {
-import zio._
+      import zio._
       import zionomicon.solutions.QueueWorkDistribution.CircuitBreakerImpl.A.CircuitBreaker.CircuitBreakerOpen
 
       /** Simple Circuit Breaker implementation */
@@ -341,88 +341,118 @@ import zio._
         case class CircuitBreakerOpen()
             extends Exception("Circuit breaker is open")
 
+        private case class CircuitBreakerState(
+          state: State,
+          failureCount: Int,
+          resetFiber: Option[Fiber[Nothing, Unit]]
+        )
+
         def make(
           maxFailures: Int,
           resetTimeout: Duration
         ): ZIO[Any, Nothing, CircuitBreaker] =
           for {
-            state        <- Ref.Synchronized.make[State](State.Closed)
-            failureCount <- Ref.make(0)
-            resetFiber   <- Ref.make[Option[Fiber[Nothing, Unit]]](None)
+            stateRef <- Ref.Synchronized.make(
+                          CircuitBreakerState(
+                            state = State.Closed,
+                            failureCount = 0,
+                            resetFiber = None
+                          )
+                        )
             cb = new CircuitBreakerImpl(
-                   state,
-                   failureCount,
-                   resetFiber,
+                   stateRef,
                    maxFailures,
                    resetTimeout
                  )
           } yield cb
 
         private class CircuitBreakerImpl(
-          state: Ref.Synchronized[State],
-          failureCount: Ref[Int],
-          resetFiber: Ref[Option[Fiber[Nothing, Unit]]],
+          stateRef: Ref.Synchronized[CircuitBreakerState],
           maxFailures: Int,
           resetTimeout: Duration
         ) extends CircuitBreaker {
 
-          override def currentState: UIO[State] = state.get
+          override def currentState: UIO[State] = stateRef.get.map(_.state)
 
           override def protect[A](operation: Task[A]): Task[A] =
-            state.modifyZIO {
-              case State.Closed =>
-                // Execute operation and capture result as Either
-                operation.either.flatMap {
-                  case Left(error) =>
-                    failureCount.updateAndGet(_ + 1).flatMap { count =>
-                      if (count >= maxFailures) {
+            stateRef.modifyZIO { cbState =>
+              cbState.state match {
+                case State.Closed =>
+                  // Execute operation and capture result as Either
+                  operation.either.flatMap {
+                    case Left(error) =>
+                      val newFailureCount = cbState.failureCount + 1
+                      if (newFailureCount >= maxFailures) {
                         // Transition to Open state and schedule reset
                         for {
-                          existingFiber <- resetFiber.get
-                          _ <- ZIO.foreachDiscard(existingFiber)(_.interrupt)
+                          _ <-
+                            ZIO.foreachDiscard(cbState.resetFiber)(_.interrupt)
                           fiber <- (ZIO.sleep(resetTimeout) *>
-                                     state.set(State.HalfOpen)).forkDaemon
-                          _ <- resetFiber.set(Some(fiber))
-                        } yield (Left(error): Either[Throwable, A], State.Open)
+                                     stateRef.update(
+                                       _.copy(state = State.HalfOpen)
+                                     )).forkDaemon
+                          newState = CircuitBreakerState(
+                                       state = State.Open,
+                                       failureCount = newFailureCount,
+                                       resetFiber = Some(fiber)
+                                     )
+                        } yield (Left(error): Either[Throwable, A], newState)
                       } else {
                         // Stay in Closed state
-                        ZIO.succeed((Left(error): Either[Throwable, A], State.Closed))
+                        val newState =
+                          cbState.copy(failureCount = newFailureCount)
+                        ZIO.succeed(
+                          (Left(error): Either[Throwable, A], newState)
+                        )
                       }
-                    }.uninterruptible
-                  case Right(success) =>
-                    // Reset failure count and stay in Closed state
-                    failureCount.set(0)
-                      .as((Right(success): Either[Throwable, A], State.Closed))
-                }
-
-              case State.Open =>
-                // Reject immediately and stay in Open state
-                ZIO.succeed((Left(CircuitBreakerOpen()): Either[Throwable, A], State.Open))
-
-              case State.HalfOpen =>
-                // Try operation in half-open state
-                ZIO.uninterruptibleMask { restore =>
-                  restore(operation).either.flatMap {
-                    case Left(error) =>
-                      // Transition back to Open and schedule reset
-                      for {
-                        existingFiber <- resetFiber.get
-                        _ <- ZIO.foreachDiscard(existingFiber)(_.interrupt)
-                        fiber <- (ZIO.sleep(resetTimeout) *>
-                                   state.set(State.HalfOpen)).forkDaemon
-                        _ <- resetFiber.set(Some(fiber))
-                      } yield (Left(error): Either[Throwable, A], State.Open)
-
                     case Right(success) =>
-                      // Transition to Closed and cancel reset
-                      for {
-                        _ <- failureCount.set(0)
-                        existingFiber <- resetFiber.get
-                        _ <- ZIO.foreachDiscard(existingFiber)(_.interrupt)
-                        _ <- resetFiber.set(None)
-                      } yield (Right(success): Either[Throwable, A], State.Closed)
+                      // Reset failure count and stay in Closed state
+                      val newState = cbState.copy(failureCount = 0)
+                      ZIO.succeed(
+                        (Right(success): Either[Throwable, A], newState)
+                      )
+                  }.uninterruptible
+
+                case State.Open =>
+                  // Reject immediately and stay in Open state
+                  ZIO.succeed(
+                    (Left(CircuitBreakerOpen()): Either[Throwable, A], cbState)
+                  )
+
+                case State.HalfOpen =>
+                  // Try operation in half-open state
+                  ZIO.uninterruptibleMask { restore =>
+                    restore(operation).either.flatMap {
+                      case Left(error) =>
+                        // Transition back to Open and schedule reset
+                        for {
+                          _ <-
+                            ZIO.foreachDiscard(cbState.resetFiber)(_.interrupt)
+                          fiber <- (ZIO.sleep(resetTimeout) *>
+                                     stateRef.update(
+                                       _.copy(state = State.HalfOpen)
+                                     )).forkDaemon
+                          newState = CircuitBreakerState(
+                                       state = State.Open,
+                                       failureCount = cbState.failureCount,
+                                       resetFiber = Some(fiber)
+                                     )
+                        } yield (Left(error): Either[Throwable, A], newState)
+
+                      case Right(success) =>
+                        // Transition to Closed and cancel reset
+                        for {
+                          _ <-
+                            ZIO.foreachDiscard(cbState.resetFiber)(_.interrupt)
+                          newState = CircuitBreakerState(
+                                       state = State.Closed,
+                                       failureCount = 0,
+                                       resetFiber = None
+                                     )
+                        } yield (Right(success): Either[Throwable, A], newState)
+                    }
                   }
-                }
+              }
             }.absolve // Convert Either[Throwable, A] back to failed/successful Task[A]
 
         }
