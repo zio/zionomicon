@@ -409,34 +409,40 @@ package QueueWorkDistribution {
             } yield ()
 
           override def protect[A](operation: Task[A]): Task[A] =
-            state.get.flatMap {
-              case State.Closed =>
-                operation.tapBoth(
+            // Use modify to atomically check state and decide action
+            state.modify {
+              case currentState@State.Closed =>
+                // Keep state as is, execute operation with callbacks
+                val effect = operation.tapBoth(
                   error => onFailure,
                   _ => onSuccess
                 )
+                (effect, currentState)
 
-              case State.Open =>
-                ZIO.fail(CircuitBreakerOpen())
+              case currentState@State.Open =>
+                // Keep state as is, fail immediately
+                val effect = ZIO.fail(CircuitBreakerOpen())
+                (effect, currentState)
 
-              case State.HalfOpen =>
-                // Use uninterruptibleMask to ensure state transitions happen atomically
-                ZIO.uninterruptibleMask { restore =>
+              case currentState@State.HalfOpen =>
+                // Keep state as is, handle half-open logic
+                val effect = ZIO.uninterruptibleMask { restore =>
                   for {
                     // Only one request gets through in half-open state
                     isFirstCall <- halfOpenSwitch.getAndSet(false)
-                    _           <- ZIO.fail(CircuitBreakerOpen()).unless(isFirstCall)
+                    _ <- ZIO.fail(CircuitBreakerOpen()).unless(isFirstCall)
                     result <- restore(operation)
-                                .onInterrupt(
-                                  halfOpenSwitch.set(true)
-                                ) // Reset if interrupted
-                                .tapBoth(
-                                  _ => transitionToOpen,
-                                  _ => transitionToClosed
-                                )
+                      .onInterrupt(
+                        halfOpenSwitch.set(true)
+                      ) // Reset if interrupted
+                      .tapBoth(
+                        _ => transitionToOpen,
+                        _ => transitionToClosed
+                      )
                   } yield result
                 }
-            }
+                (effect, currentState)
+            }.flatten
 
           private def onFailure: UIO[Unit] =
             semaphore.withPermit {
