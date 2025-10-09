@@ -335,32 +335,27 @@ package QueueWorkDistribution {
       object CircuitBreaker {
         sealed trait State
         object State {
-          case object Closed   extends State
-          case object HalfOpen extends State
-          case object Open     extends State
+          case class Closed(failureCount: Int) extends State {
+            override def toString: String = "Closed"
+          }
+          case class HalfOpen(failureCount: Int) extends State {
+            override def toString: String = "HalfOpen"
+          }
+          case class Open(failureCount: Int, openedAt: Long) extends State {
+            override def toString: String = "Open"
+          }
         }
 
         case class CircuitBreakerOpen()
             extends Exception("Circuit breaker is open")
-
-        private case class CircuitBreakerState(
-          state: State,
-          failureCount: Int,
-          // Timestamp in milliseconds when the circuit opened
-          openedAt: Option[Long]
-        )
 
         def make(
           maxFailures: Int,
           resetTimeout: Duration
         ): ZIO[Any, Nothing, CircuitBreaker] =
           for {
-            stateRef <- Ref.Synchronized.make(
-                          CircuitBreakerState(
-                            state = State.Closed,
-                            failureCount = 0,
-                            openedAt = None
-                          )
+            stateRef <- Ref.Synchronized.make[State](
+                          State.Closed(failureCount = 0)
                         )
             cb = new CircuitBreakerImpl(
                    stateRef,
@@ -370,113 +365,89 @@ package QueueWorkDistribution {
           } yield cb
 
         private class CircuitBreakerImpl(
-          stateRef: Ref.Synchronized[CircuitBreakerState],
+          stateRef: Ref.Synchronized[State],
           maxFailures: Int,
           resetTimeout: Duration
         ) extends CircuitBreaker {
 
-          override def currentState: UIO[State] = stateRef.get.map(_.state)
+          override def currentState: UIO[State] = stateRef.get
 
           override def protect[A](operation: Task[A]): Task[A] =
-            stateRef.modifyZIO { cbState =>
-              cbState.state match {
-                case State.Closed =>
-                  // Execute operation and capture result as Either
-                  operation.either.flatMap {
-                    case Left(error) =>
-                      val newFailureCount = cbState.failureCount + 1
-                      if (newFailureCount >= maxFailures) {
-                        // Transition to Open state with current timestamp
-                        Clock.currentTime(TimeUnit.MILLISECONDS).map { now =>
-                          val newState = CircuitBreakerState(
-                            state = State.Open,
-                            failureCount = newFailureCount,
-                            openedAt = Some(now)
-                          )
-                          (Left(error), newState)
-                        }
-                      } else {
-                        // Stay in Closed state
-                        val newState =
-                          cbState.copy(failureCount = newFailureCount)
-                        ZIO.succeed(
-                          (Left(error), newState)
+            stateRef.modifyZIO {
+              case State.Closed(failureCount) =>
+                // Execute operation and capture result as Either
+                operation.either.flatMap {
+                  case Left(error) =>
+                    val newFailureCount = failureCount + 1
+                    if (newFailureCount >= maxFailures) {
+                      // Transition to Open state with current timestamp
+                      Clock.currentTime(TimeUnit.MILLISECONDS).map { now =>
+                        val newState = State.Open(
+                          failureCount = newFailureCount,
+                          openedAt = now
                         )
+                        (Left(error), newState)
+                      }
+                    } else {
+                      // Stay in Closed state
+                      val newState =
+                        State.Closed(failureCount = newFailureCount)
+                      ZIO.succeed((Left(error), newState))
+                    }
+                  case Right(success) =>
+                    // Reset failure count and stay in Closed state
+                    val newState = State.Closed(failureCount = 0)
+                    ZIO.succeed((Right(success), newState))
+                }.uninterruptible
+
+              case state @ State.Open(failureCount, openedAt) =>
+                // Check if enough time has passed to transition to HalfOpen
+                Clock.currentTime(TimeUnit.MILLISECONDS).flatMap { now =>
+                  val elapsed = now - openedAt
+                  if (elapsed >= resetTimeout.toMillis) {
+                    // Transition to HalfOpen and try the operation
+                    ZIO.uninterruptibleMask { restore =>
+                      restore(operation).either.flatMap {
+                        case Left(error) =>
+                          // Transition back to Open with new timestamp
+                          Clock.currentTime(TimeUnit.MILLISECONDS).map {
+                            newNow =>
+                              val newState = State.Open(
+                                failureCount = failureCount,
+                                openedAt = newNow
+                              )
+                              (Left(error), newState)
+                          }
+                        case Right(success) =>
+                          // Transition to Closed
+                          val newState = State.Closed(failureCount = 0)
+                          ZIO.succeed((Right(success), newState))
+                      }
+                    }
+                  } else {
+                    // Still in timeout period, reject immediately
+                    ZIO.succeed((Left(CircuitBreakerOpen()), state))
+                  }
+                }
+
+              case State.HalfOpen(failureCount) =>
+                // Try operation in half-open state
+                ZIO.uninterruptibleMask { restore =>
+                  restore(operation).either.flatMap {
+                    case Left(error) =>
+                      // Transition back to Open with new timestamp
+                      Clock.currentTime(TimeUnit.MILLISECONDS).map { now =>
+                        val newState = State.Open(
+                          failureCount = failureCount,
+                          openedAt = now
+                        )
+                        (Left(error), newState)
                       }
                     case Right(success) =>
-                      // Reset failure count and stay in Closed state
-                      val newState = cbState.copy(failureCount = 0)
+                      val newState = State.Closed(failureCount = 0)
                       ZIO.succeed((Right(success), newState))
-                  }.uninterruptible
-
-                case State.Open =>
-                  // Check if enough time has passed to transition to HalfOpen
-                  Clock.currentTime(TimeUnit.MILLISECONDS).flatMap { now =>
-                    cbState.openedAt match {
-                      case Some(openedAt) =>
-                        val elapsed = now - openedAt
-                        if (elapsed >= resetTimeout.toMillis) {
-                          // Transition to HalfOpen and try the operation
-                          val halfOpenState =
-                            cbState.copy(state = State.HalfOpen)
-                          ZIO.uninterruptibleMask { restore =>
-                            restore(operation).either.flatMap {
-                              case Left(error) =>
-                                // Transition back to Open with new timestamp
-                                Clock.currentTime(TimeUnit.MILLISECONDS).map {
-                                  newNow =>
-                                    val newState = CircuitBreakerState(
-                                      state = State.Open,
-                                      failureCount = cbState.failureCount,
-                                      openedAt = Some(newNow)
-                                    )
-                                    (Left(error), newState)
-                                }
-                              case Right(success) =>
-                                // Transition to Closed
-                                val newState = CircuitBreakerState(
-                                  state = State.Closed,
-                                  failureCount = 0,
-                                  openedAt = None
-                                )
-                                ZIO.succeed((Right(success), newState))
-                            }
-                          }
-                        } else {
-                          // Still in timeout period, reject immediately
-                          ZIO.succeed((Left(CircuitBreakerOpen()), cbState))
-                        }
-                      case None =>
-                        // Should not happen, but treat as if timeout has passed
-                        val halfOpenState = cbState.copy(state = State.HalfOpen)
-                        ZIO.succeed((Left(CircuitBreakerOpen()), halfOpenState))
-                    }
                   }
-
-                case State.HalfOpen =>
-                  // Try operation in half-open state
-                  ZIO.uninterruptibleMask { restore =>
-                    restore(operation).either.flatMap {
-                      case Left(error) =>
-                        // Transition back to Open with new timestamp
-                        Clock.currentTime(TimeUnit.MILLISECONDS).map { now =>
-                          val newState = CircuitBreakerState(
-                            state = State.Open,
-                            failureCount = cbState.failureCount,
-                            openedAt = Some(now)
-                          )
-                          (Left(error), newState)
-                        }
-                      case Right(success) =>
-                        val newState = CircuitBreakerState(
-                          state = State.Closed,
-                          failureCount = 0,
-                          openedAt = None
-                        )
-                        ZIO.succeed((Right(success), newState))
-                    }
-                  }
-              }
+                }
             }.absolve
         }
       }
