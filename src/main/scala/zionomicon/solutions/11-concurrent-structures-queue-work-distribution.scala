@@ -324,7 +324,9 @@ package QueueWorkDistribution {
       import zio._
       import zionomicon.solutions.QueueWorkDistribution.CircuitBreakerImpl.A.CircuitBreaker.CircuitBreakerOpen
 
-      /** Simple Circuit Breaker implementation */
+      import java.util.concurrent.TimeUnit
+
+      /** Simple Circuit Breaker implementation using timestamps */
       trait CircuitBreaker {
         def protect[A](operation: Task[A]): Task[A]
         def currentState: UIO[CircuitBreaker.State]
@@ -344,7 +346,8 @@ package QueueWorkDistribution {
         private case class CircuitBreakerState(
           state: State,
           failureCount: Int,
-          resetFiber: Option[Fiber[Nothing, Unit]]
+          // Timestamp in milliseconds when the circuit opened
+          openedAt: Option[Long]
         )
 
         def make(
@@ -356,7 +359,7 @@ package QueueWorkDistribution {
                           CircuitBreakerState(
                             state = State.Closed,
                             failureCount = 0,
-                            resetFiber = None
+                            openedAt = None
                           )
                         )
             cb = new CircuitBreakerImpl(
@@ -383,20 +386,15 @@ package QueueWorkDistribution {
                     case Left(error) =>
                       val newFailureCount = cbState.failureCount + 1
                       if (newFailureCount >= maxFailures) {
-                        // Transition to Open state and schedule reset
-                        for {
-                          _ <-
-                            ZIO.foreachDiscard(cbState.resetFiber)(_.interrupt)
-                          fiber <- (ZIO.sleep(resetTimeout) *>
-                                     stateRef.update(
-                                       _.copy(state = State.HalfOpen)
-                                     )).forkDaemon
-                          newState = CircuitBreakerState(
-                                       state = State.Open,
-                                       failureCount = newFailureCount,
-                                       resetFiber = Some(fiber)
-                                     )
-                        } yield (Left(error), newState)
+                        // Transition to Open state with current timestamp
+                        Clock.currentTime(TimeUnit.MILLISECONDS).map { now =>
+                          val newState = CircuitBreakerState(
+                            state = State.Open,
+                            failureCount = newFailureCount,
+                            openedAt = Some(now)
+                          )
+                          (Left(error), newState)
+                        }
                       } else {
                         // Stay in Closed state
                         val newState =
@@ -412,45 +410,74 @@ package QueueWorkDistribution {
                   }.uninterruptible
 
                 case State.Open =>
-                  // Reject immediately and stay in Open state
-                  ZIO.succeed((Left(CircuitBreakerOpen()), cbState))
+                  // Check if enough time has passed to transition to HalfOpen
+                  Clock.currentTime(TimeUnit.MILLISECONDS).flatMap { now =>
+                    cbState.openedAt match {
+                      case Some(openedAt) =>
+                        val elapsed = now - openedAt
+                        if (elapsed >= resetTimeout.toMillis) {
+                          // Transition to HalfOpen and try the operation
+                          val halfOpenState =
+                            cbState.copy(state = State.HalfOpen)
+                          ZIO.uninterruptibleMask { restore =>
+                            restore(operation).either.flatMap {
+                              case Left(error) =>
+                                // Transition back to Open with new timestamp
+                                Clock.currentTime(TimeUnit.MILLISECONDS).map {
+                                  newNow =>
+                                    val newState = CircuitBreakerState(
+                                      state = State.Open,
+                                      failureCount = cbState.failureCount,
+                                      openedAt = Some(newNow)
+                                    )
+                                    (Left(error), newState)
+                                }
+                              case Right(success) =>
+                                // Transition to Closed
+                                val newState = CircuitBreakerState(
+                                  state = State.Closed,
+                                  failureCount = 0,
+                                  openedAt = None
+                                )
+                                ZIO.succeed((Right(success), newState))
+                            }
+                          }
+                        } else {
+                          // Still in timeout period, reject immediately
+                          ZIO.succeed((Left(CircuitBreakerOpen()), cbState))
+                        }
+                      case None =>
+                        // Should not happen, but treat as if timeout has passed
+                        val halfOpenState = cbState.copy(state = State.HalfOpen)
+                        ZIO.succeed((Left(CircuitBreakerOpen()), halfOpenState))
+                    }
+                  }
 
                 case State.HalfOpen =>
                   // Try operation in half-open state
                   ZIO.uninterruptibleMask { restore =>
                     restore(operation).either.flatMap {
                       case Left(error) =>
-                        // Transition back to Open and schedule reset
-                        for {
-                          _ <-
-                            ZIO.foreachDiscard(cbState.resetFiber)(_.interrupt)
-                          fiber <- (ZIO.sleep(resetTimeout) *>
-                                     stateRef.update(
-                                       _.copy(state = State.HalfOpen)
-                                     )).forkDaemon
-                          newState = CircuitBreakerState(
-                                       state = State.Open,
-                                       failureCount = cbState.failureCount,
-                                       resetFiber = Some(fiber)
-                                     )
-                        } yield (Left(error), newState)
-
+                        // Transition back to Open with new timestamp
+                        Clock.currentTime(TimeUnit.MILLISECONDS).map { now =>
+                          val newState = CircuitBreakerState(
+                            state = State.Open,
+                            failureCount = cbState.failureCount,
+                            openedAt = Some(now)
+                          )
+                          (Left(error), newState)
+                        }
                       case Right(success) =>
-                        // Transition to Closed and cancel reset
-                        for {
-                          _ <-
-                            ZIO.foreachDiscard(cbState.resetFiber)(_.interrupt)
-                          newState = CircuitBreakerState(
-                                       state = State.Closed,
-                                       failureCount = 0,
-                                       resetFiber = None
-                                     )
-                        } yield (Right(success), newState)
+                        val newState = CircuitBreakerState(
+                          state = State.Closed,
+                          failureCount = 0,
+                          openedAt = None
+                        )
+                        ZIO.succeed((Right(success), newState))
                     }
                   }
               }
-            }.absolve // Convert Either[Throwable, A] back to failed/successful Task[A]
-
+            }.absolve
         }
       }
 
@@ -493,7 +520,7 @@ package QueueWorkDistribution {
                                maxFailures = 3,
                                resetTimeout = 2000.millis
                              )
-//                      1. Create a list of success and failure outcomes and shuffle it
+                       // 1. Create a list of success and failure outcomes and shuffle it
                        outcomes <- Random
                                      .shuffle(
                                        List.fill(2)(
@@ -501,13 +528,6 @@ package QueueWorkDistribution {
                                        ) ++ List.fill(3)(RequestOutcome.Failure)
                                      )
                                      .map(_.toList: List[RequestOutcome])
-//                     outcomes: List[RequestOutcome] = List(
-//                                                        RequestOutcome.Success,
-//                                                        RequestOutcome.Success,
-//                                                        RequestOutcome.Failure,
-//                                                        RequestOutcome.Failure,
-//                                                        RequestOutcome.Failure
-//                                                      )
                        outcomeRef <- Ref.make(outcomes)
                        service     = new TestService(outcomeRef)
 
