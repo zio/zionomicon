@@ -441,7 +441,7 @@ package QueueWorkDistribution {
                  for {
                    state <- cb.currentState
                    _     <- ZIO.debug(s"Request $i [Circuit: $state]")
-                   _ <- cb.protect(service.call)
+                   _ <- (cb.protect(service.call): Task[String])
                           .tap(_ => ZIO.debug(s"  ✓ Success"))
                           .tapError(_ => ZIO.debug(s"  ✗ Failed"))
                           .catchAll {
