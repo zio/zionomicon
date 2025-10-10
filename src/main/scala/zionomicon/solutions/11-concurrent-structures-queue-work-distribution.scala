@@ -335,9 +335,6 @@ package QueueWorkDistribution {
         case class Closed(failureCount: Int) extends State {
           override def toString: String = "Closed"
         }
-        case class HalfOpen(failureCount: Int) extends State {
-          override def toString: String = "HalfOpen"
-        }
         case class Open(failureCount: Int, openedAt: Long) extends State {
           override def toString: String = "Open"
         }
