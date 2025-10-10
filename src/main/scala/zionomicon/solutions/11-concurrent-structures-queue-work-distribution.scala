@@ -444,13 +444,10 @@ package QueueWorkDistribution {
                    _ <- (cb.protect(service.call): Task[String])
                           .tap(_ => ZIO.debug(s"  ✓ Success"))
                           .tapError(_ => ZIO.debug(s"  ✗ Failed"))
-                          .catchAll { (err: Throwable) =>
-                            err match {
-                              case _: CircuitBreakerOpen =>
-                                ZIO.debug(s"  ⊗ Rejected - circuit is open")
-                              case _ => ZIO.unit
-                            }
+                          .catchSome { case _: CircuitBreakerOpen =>
+                            ZIO.debug(s"  ⊗ Rejected - circuit is open")
                           }
+                          .ignore
                  } yield ()
                }
 
@@ -622,13 +619,10 @@ package QueueWorkDistribution {
                          ZIO.debug(s"  ✓ Success (failure counter reset to 0)")
                        )
                        .tapError(_ => ZIO.debug(s"  ✗ Failed"))
-                       .catchAll { (err: Throwable) =>
-                         err match {
-                           case _: CircuitBreakerOpen =>
-                             ZIO.debug(s"  ⊗ Rejected - circuit is open")
-                           case _ => ZIO.unit
-                         }
+                       .catchSome { case _: CircuitBreakerOpen =>
+                         ZIO.debug(s"  ⊗ Rejected - circuit is open")
                        }
+                       .ignore
                  } yield ()
                }
 
