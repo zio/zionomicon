@@ -6,14 +6,14 @@ package RefSharedState {
    *   1. Write a simple `Counter` with the following interface that can be
    *      incremented and decremented concurrently:
    *
-   *     {{{
+   * {{{
    *     trait Counter {
    *       def increment: UIO[Long]
    *       def decrement: UIO[Long]
    *       def get: UIO[Long]
    *       def reset: UIO[Unit]
    *     }
-   *     }}}
+   * }}}
    */
   object CounterImpl {
 
@@ -36,14 +36,14 @@ package RefSharedState {
    *   2. Implement a bounded queue using `Ref` that has a maximum capacity that
    *      supports the following interface:
    *
-   *     {{{
+   * {{{
    *     trait BoundedQueue[A] {
    *       def enqueue(a: A): UIO[Boolean] // Returns false if queue is full
    *       def dequeue: UIO[Option[A]]     // Returns None if queue is empty
    *       def size: UIO[Int]
    *       def capacity: UIO[Int]
    *     }
-   *     }}}
+   * }}}
    */
   object BoundedQueueImpl {
     import zio._
@@ -51,11 +51,11 @@ package RefSharedState {
     import scala.collection.immutable.Queue
 
     case class BoundedQueue[A](
-                                enqueue: A => UIO[Boolean],
-                                dequeue: UIO[Option[A]],
-                                size: UIO[Int],
-                                capacity: UIO[Int]
-                              )
+      enqueue: A => UIO[Boolean],
+      dequeue: UIO[Option[A]],
+      size: UIO[Int],
+      capacity: UIO[Int]
+    )
 
     object BoundedQueue {
       def make[A](maxCapacity: Int): UIO[BoundedQueue[A]] =
@@ -86,7 +86,7 @@ package RefSharedState {
    *   3. Write a `CounterManager` service that manages multiple counters with
    *      the following interface:
    *
-   *     {{{
+   * {{{
    *     type CounterId = String
    *
    *     trait CounterManager {
@@ -96,7 +96,7 @@ package RefSharedState {
    *       def reset(id: CounterId): UIO[Unit]
    *       def remove(id: CounterId): UIO[Unit]
    *     }
-   *     }}}
+   * }}}
    */
 
   object CounterManagerImpl {
@@ -105,8 +105,8 @@ package RefSharedState {
     type CounterId = String
 
     case class CounterManager private (
-                                        private val countersRef: Ref[Map[CounterId, Int]]
-                                      ) {
+      private val countersRef: Ref[Map[CounterId, Int]]
+    ) {
       def increment(id: CounterId): UIO[Int] =
         countersRef.modify { counters =>
           val newValue = counters.getOrElse(id, 0) + 1
@@ -140,12 +140,12 @@ package RefSharedState {
    *      through the chapter. It should show the hierarchical structure of
    *      fiber logs using indentation:
    *
-   *       - Each level of nesting should be indented by two spaces from the
-   *         previous one.
-   *       - The log entries for each fiber should be shown on separate lines
-   *       - Child fiber logs should be shown under their parent fiber
+   *   - Each level of nesting should be indented by two spaces from the
+   *     previous one.
+   *   - The log entries for each fiber should be shown on separate lines
+   *   - Child fiber logs should be shown under their parent fiber
    *
-   *    {{{
+   * {{{
    *    trait Logger {
    *      def log(message: String): UIO[Unit]
    *    }
@@ -153,18 +153,18 @@ package RefSharedState {
    *    object Logger {
    *      def render(ref: Log): UIO[String] = ???
    *    }
-   *    }}}
+   * }}}
    *
    * Example output:
    *
-   *     {{{
+   * {{{
    *     Got foo
    *       Got 1
    *       Got 2
    *     Got bar
    *       Got 3
    *       Got 4
-   *     }}}
+   * }}}
    */
   import zio._
 
@@ -215,12 +215,12 @@ package RefSharedState {
         logger <- Logger.make
         _      <- logger.log("Starting application...")
         _ <- {
-          for {
-            _ <- logger.log("Initializing components...")
-            _ <- logger.log("Configuring components...")
-            _ <- logger.log("Setting up services...")
-          } yield ()
-        }.fork.flatMap(_.join)
+               for {
+                 _ <- logger.log("Initializing components...")
+                 _ <- logger.log("Configuring components...")
+                 _ <- logger.log("Setting up services...")
+               } yield ()
+             }.fork.flatMap(_.join)
         _   <- logger.log("Application started successfully.")
         log <- logger.render
         _   <- Console.printLine(log)
@@ -232,24 +232,24 @@ package RefSharedState {
    *      `String`, so that you can implement an advanced log renderer that adds
    *      timestamps and fiber IDs, like the following output:
    *
-   *     {{{
+   * {{{
    *     [2024-01-01 10:00:01][fiber-1] Child foo
    *       [2024-01-01 10:00:02][fiber-2] Got 1
    *       [2024-01-01 10:00:03][fiber-2] Got 2
    *     [2024-01-01 10:00:01][fiber-1] Child bar
    *       [2024-01-01 10:00:02][fiber-3] Got 3
    *       [2024-01-01 10:00:03][fiber-3] Got 4
-   *     }}}
+   * }}}
    *
    * Hint: You can use the following model for the log entry:
    *
-   *     {{{
+   * {{{
    *     case class LogEntry(
    *       timestamp: java.time.Instant,
    *       fiberId: String,
    *       message: String
    *     )
-   *     }}}
+   * }}}
    */
   object AdvancedNestedLoggerImpl {
     import java.time.{Instant, ZoneId}
@@ -315,15 +315,15 @@ package RefSharedState {
         logger <- Logger.make
         _      <- logger.log("Starting application...")
         _ <- {
-          for {
-            _ <- logger.log("Initializing components...")
-            // Small delay to show different timestamps
-            _ <- ZIO.sleep(100.millis)
-            _ <- logger.log("Configuring components...")
-            _ <- ZIO.sleep(100.millis)
-            _ <- logger.log("Setting up services...")
-          } yield ()
-        }.fork.flatMap(_.join)
+               for {
+                 _ <- logger.log("Initializing components...")
+                 // Small delay to show different timestamps
+                 _ <- ZIO.sleep(100.millis)
+                 _ <- logger.log("Configuring components...")
+                 _ <- ZIO.sleep(100.millis)
+                 _ <- logger.log("Setting up services...")
+               } yield ()
+             }.fork.flatMap(_.join)
         _   <- logger.log("Application started successfully.")
         log <- logger.render
         _   <- Console.printLine(log)
@@ -336,14 +336,14 @@ package RefSharedState {
    *      that the user can change the log level for a specific region of the
    *      application:
    *
-   *     {{{
+   * {{{
    *     trait Logger {
    *       def log(message: String): UIO[Unit]
    *       def withLogLevel[R, E, A](level: LogLevel)(
    *         zio: ZIO[R, E, A]
    *       ): ZIO[R, E, A]
    *     }
-   *     }}}
+   * }}}
    */
 
   import java.time.{Instant, ZoneId}
@@ -383,32 +383,32 @@ package RefSharedState {
 
     // Enhanced log entry with log level
     case class LogEntry(
-                         timestamp: Instant,
-                         fiberId: String,
-                         level: LogLevel,
-                         message: String
-                       )
+      timestamp: Instant,
+      fiberId: String,
+      level: LogLevel,
+      message: String
+    )
 
     sealed trait LogNode
     case class Message(entry: LogEntry)       extends LogNode
     case class Child(entries: Chunk[LogNode]) extends LogNode
 
     case class Logger private (
-                                private val logs: FiberRef[Chunk[LogNode]],
-                                private val currentLevel: FiberRef[LogLevel]
-                              ) {
+      private val logs: FiberRef[Chunk[LogNode]],
+      private val currentLevel: FiberRef[LogLevel]
+    ) {
 
       private def logWithLevel(level: LogLevel, message: String): UIO[Unit] =
         for {
           threshold <- currentLevel.get
           _ <- ZIO.when(level.level >= threshold.level) {
-            for {
-              timestamp <- Clock.instant
-              fiberId   <- ZIO.fiberId.map(_.id).map(id => s"Fiber-$id")
-              entry      = LogEntry(timestamp, fiberId, level, message)
-              _         <- logs.update(_ :+ Message(entry))
-            } yield ()
-          }
+                 for {
+                   timestamp <- Clock.instant
+                   fiberId   <- ZIO.fiberId.map(_.id).map(id => s"Fiber-$id")
+                   entry      = LogEntry(timestamp, fiberId, level, message)
+                   _         <- logs.update(_ :+ Message(entry))
+                 } yield ()
+               }
         } yield ()
 
       def log(message: String): UIO[Unit] = info(message)
@@ -455,15 +455,15 @@ package RefSharedState {
 
     object Logger {
       def make(
-                defaultLevel: LogLevel = LogLevel.Info
-              ): ZIO[Any, Nothing, Logger] =
+        defaultLevel: LogLevel = LogLevel.Info
+      ): ZIO[Any, Nothing, Logger] =
         ZIO.scoped {
           for {
             logsRef <- FiberRef.make[Chunk[LogNode]](
-              initial = Chunk.empty,
-              fork = _ => Chunk.empty,
-              join = (parent, child) => parent ++ Chunk(Child(child))
-            )
+                         initial = Chunk.empty,
+                         fork = _ => Chunk.empty,
+                         join = (parent, child) => parent ++ Chunk(Child(child))
+                       )
             levelRef <- FiberRef.make(defaultLevel)
           } yield Logger(logsRef, levelRef)
         }

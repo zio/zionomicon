@@ -10,7 +10,7 @@ package PromiseWorkSynchronization {
    *      decremented each time an operation completes. When the count reaches
    *      zero, all waiting threads are released:
    *
-   *     {{{
+   * {{{
    *     trait CountDownLatch {
    *       def countDown: UIO[Unit]
    *       def await: UIO[Unit]
@@ -19,16 +19,16 @@ package PromiseWorkSynchronization {
    *     object CountDownLatch {
    *       def make(n: Int): UIO[CountDownLatch] = ???
    *     }
-   *     }}}
+   * }}}
    */
 
   package CountDownLatchImpl {
     import zio._
 
     final case class CountDownLatch(
-                                     count: Ref[Int],
-                                     promise: Promise[Nothing, Unit]
-                                   ) {
+      count: Ref[Int],
+      promise: Promise[Nothing, Unit]
+    ) {
       def countDown: UIO[Unit] =
         count.modify { current =>
           if (current <= 0) {
@@ -66,15 +66,15 @@ package PromiseWorkSynchronization {
 
           // Start 3 fibers that will count down
           _ <- ZIO
-            .foreachPar(1 to 3) { i =>
-              for {
-                _ <- ZIO.debug(s"Fiber $i starting work...")
-                _ <- ZIO.sleep(i.seconds)
-                _ <- ZIO.debug(s"Fiber $i completed!")
-                _ <- latch.countDown
-              } yield ()
-            }
-            .fork
+                 .foreachPar(1 to 3) { i =>
+                   for {
+                     _ <- ZIO.debug(s"Fiber $i starting work...")
+                     _ <- ZIO.sleep(i.seconds)
+                     _ <- ZIO.debug(s"Fiber $i completed!")
+                     _ <- latch.countDown
+                   } yield ()
+                 }
+                 .fork
 
           // Main fiber waits for all to complete
           _ <- ZIO.debug("Waiting for all fibers to complete...")
@@ -91,7 +91,7 @@ package PromiseWorkSynchronization {
    *      to all wait for each other to reach a common barrier point. Once all
    *      threads have reached the barrier, they can proceed:
    *
-   *     {{{
+   * {{{
    *     trait CyclicBarrier {
    *       def await: UIO[Unit]
    *       def reset: UIO[Unit]
@@ -100,7 +100,7 @@ package PromiseWorkSynchronization {
    *     object CyclicBarrier {
    *       def make(parties: Int): UIO[CyclicBarrier] = ???
    *     }
-   *     }}}
+   * }}}
    */
   package CyclicBarrierImpl {
 
@@ -111,34 +111,34 @@ package PromiseWorkSynchronization {
     // implementation, consider using the `zio.concurrent.CyclicBarrier`
     // provided by ZIO.
     final case class CyclicBarrier(
-                                    parties: Int,
-                                    waiting: Ref[Int],
-                                    promise: Ref[Promise[Nothing, Unit]]
-                                  ) {
+      parties: Int,
+      waiting: Ref[Int],
+      promise: Ref[Promise[Nothing, Unit]]
+    ) {
       def await: UIO[Unit] =
         for {
           currentPromise <- promise.get
           shouldRelease <- waiting.modify { current =>
-            val newWaiting = current + 1
-            if (newWaiting == parties) {
-              // Last thread to arrive - release everyone and reset
-              (true, 0)
-            } else {
-              // Not the last thread - keep waiting
-              (false, newWaiting)
-            }
-          }
+                             val newWaiting = current + 1
+                             if (newWaiting == parties) {
+                               // Last thread to arrive - release everyone and reset
+                               (true, 0)
+                             } else {
+                               // Not the last thread - keep waiting
+                               (false, newWaiting)
+                             }
+                           }
           _ <- if (shouldRelease) {
-            // Complete the current promise to release all waiting threads
-            currentPromise.succeed(()).unit *>
-              // Create a new promise for the next cycle
-              Promise
-                .make[Nothing, Unit]
-                .flatMap(newPromise => promise.set(newPromise))
-          } else {
-            // Wait for all threads to arrive
-            currentPromise.await
-          }
+                 // Complete the current promise to release all waiting threads
+                 currentPromise.succeed(()).unit *>
+                   // Create a new promise for the next cycle
+                   Promise
+                     .make[Nothing, Unit]
+                     .flatMap(newPromise => promise.set(newPromise))
+               } else {
+                 // Wait for all threads to arrive
+                 currentPromise.await
+               }
         } yield ()
 
       def reset: UIO[Unit] =
@@ -166,14 +166,14 @@ package PromiseWorkSynchronization {
         for {
           barrier <- CyclicBarrier.make(3)
           _ <- ZIO.foreachPar(1 to 3) { i =>
-            for {
-              _ <- ZIO.debug(s"Job $i: Starting work...")
-              _ <- ZIO.sleep(i.seconds)
-              _ <- ZIO.debug(s"Job $i: Reaching barrier...")
-              _ <- barrier.await
-              _ <- ZIO.debug(s"Job $i: Passed barrier!")
-            } yield ()
-          }
+                 for {
+                   _ <- ZIO.debug(s"Job $i: Starting work...")
+                   _ <- ZIO.sleep(i.seconds)
+                   _ <- ZIO.debug(s"Job $i: Reaching barrier...")
+                   _ <- barrier.await
+                   _ <- ZIO.debug(s"Job $i: Passed barrier!")
+                 } yield ()
+               }
         } yield ()
     }
 
@@ -184,7 +184,7 @@ package PromiseWorkSynchronization {
    *      should support enqueueing and dequeueing operations, blocking when the
    *      queue is full or empty:
    *
-   *     {{{
+   * {{{
    *     trait Queue[A] {
    *       def offer(a: A): UIO[Unit]
    *       def take: UIO[A]
@@ -193,7 +193,7 @@ package PromiseWorkSynchronization {
    *     object Queue {
    *       def make[A](capacity: Int): UIO[Queue[A]] = ???
    *     }
-   *     }}}
+   * }}}
    */
 
   // Please note that this is an educational implementation and may not be
@@ -203,9 +203,9 @@ package PromiseWorkSynchronization {
     import zio._
 
     final case class BoundedQueue[A] private (
-                                               capacity: Int,
-                                               state: Ref[BoundedQueue.State[A]]
-                                             ) extends Queue[A] {
+      capacity: Int,
+      state: Ref[BoundedQueue.State[A]]
+    ) extends Queue[A] {
       import BoundedQueue._
 
       def offer(a: A): UIO[Unit] =
@@ -292,12 +292,12 @@ package PromiseWorkSynchronization {
     object BoundedQueue {
 
       case class State[A](
-                           queue: scala.collection.immutable.Queue[A],
-                           waitingConsumers: scala.collection.immutable.Queue[Promise[Nothing, A]],
-                           waitingProducers: scala.collection.immutable.Queue[
-                             (A, Promise[Nothing, Unit])
-                           ]
-                         )
+        queue: scala.collection.immutable.Queue[A],
+        waitingConsumers: scala.collection.immutable.Queue[Promise[Nothing, A]],
+        waitingProducers: scala.collection.immutable.Queue[
+          (A, Promise[Nothing, Unit])
+        ]
+      )
 
       def make[A](capacity: Int): UIO[BoundedQueue[A]] =
         if (capacity <= 0)
@@ -333,25 +333,25 @@ package PromiseWorkSynchronization {
 
           // Producer fiber that will block when the queue is full
           producer <- ZIO
-            .foreachPar(1 to 5) { i =>
-              for {
-                _ <- ZIO.debug(s"Offering $i")
-                _ <- queue.offer(i)
-                _ <- ZIO.debug(s"Offered $i successfully")
-              } yield ()
-            }
-            .fork
+                        .foreachPar(1 to 5) { i =>
+                          for {
+                            _ <- ZIO.debug(s"Offering $i")
+                            _ <- queue.offer(i)
+                            _ <- ZIO.debug(s"Offered $i successfully")
+                          } yield ()
+                        }
+                        .fork
 
           consumer <- ZIO
-            .foreachPar(1 to 5) { _ =>
-              for {
-                _ <- ZIO.debug("Taking from queue...")
-                v <- queue.take
-                _ <- ZIO.debug(s"Took $v from queue")
-                _ <- ZIO.sleep(500.millis)
-              } yield ()
-            }
-            .fork
+                        .foreachPar(1 to 5) { _ =>
+                          for {
+                            _ <- ZIO.debug("Taking from queue...")
+                            v <- queue.take
+                            _ <- ZIO.debug(s"Took $v from queue")
+                            _ <- ZIO.sleep(500.millis)
+                          } yield ()
+                        }
+                        .fork
 
           _ <- producer.join
           _ <- consumer.join

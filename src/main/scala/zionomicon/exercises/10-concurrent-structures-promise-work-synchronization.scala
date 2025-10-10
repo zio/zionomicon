@@ -10,7 +10,7 @@ package PromiseWorkSynchronization {
    *      decremented each time an operation completes. When the count reaches
    *      zero, all waiting threads are released:
    *
-   *     {{{
+   * {{{
    *     trait CountDownLatch {
    *       def countDown: UIO[Unit]
    *       def await: UIO[Unit]
@@ -19,7 +19,7 @@ package PromiseWorkSynchronization {
    *     object CountDownLatch {
    *       def make(n: Int): UIO[CountDownLatch] = ???
    *     }
-   *     }}}
+   * }}}
    */
 
   package CountDownLatchImpl {}
@@ -30,7 +30,7 @@ package PromiseWorkSynchronization {
    *      to all wait for each other to reach a common barrier point. Once all
    *      threads have reached the barrier, they can proceed:
    *
-   *     {{{
+   * {{{
    *     trait CyclicBarrier {
    *       def await: UIO[Unit]
    *       def reset: UIO[Unit]
@@ -39,7 +39,7 @@ package PromiseWorkSynchronization {
    *     object CyclicBarrier {
    *       def make(parties: Int): UIO[CyclicBarrier] = ???
    *     }
-   *     }}}
+   * }}}
    */
   package CyclicBarrierImpl {}
 
@@ -48,7 +48,7 @@ package PromiseWorkSynchronization {
    *      should support enqueueing and dequeueing operations, blocking when the
    *      queue is full or empty:
    *
-   *     {{{
+   * {{{
    *     trait Queue[A] {
    *       def offer(a: A): UIO[Unit]
    *       def take: UIO[A]
@@ -57,7 +57,7 @@ package PromiseWorkSynchronization {
    *     object Queue {
    *       def make[A](capacity: Int): UIO[Queue[A]] = ???
    *     }
-   *     }}}
+   * }}}
    */
 
   package BoundedQueueImpl {}
