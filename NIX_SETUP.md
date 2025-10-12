@@ -96,6 +96,23 @@ sbt scalafmtAll
 sbt lint
 ```
 
+### Using Make Commands
+
+For convenience, a Makefile is provided with common commands:
+
+```bash
+make help           # Show all available commands
+make compile        # Compile the project
+make test           # Run tests
+make lint           # Run linting
+make fmt            # Format code
+make check          # Run all checks (compile + test + lint + format)
+make ci             # Run full CI pipeline locally
+make validate-nix   # Validate Nix configuration
+```
+
+All make commands automatically run within the Nix environment.
+
 ## CI/CD
 
 The CI pipeline uses Nix for all builds, ensuring the same environment locally and in CI:
