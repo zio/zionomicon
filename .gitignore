@@ -5,3 +5,8 @@ target
 .metals
 .vscode
 .idea
+
+# Nix
+result
+result-*
+.direnv
