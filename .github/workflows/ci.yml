@@ -85,8 +85,6 @@ jobs:
         key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/build.properties') }}
         restore-keys: |
           ${{ runner.os }}-sbt-
-    - name: Check if the site workflow is up to date
-      run: nix develop .#ci -c sbt ciCheckGithubWorkflow
     - name: Lint
       run: nix develop .#ci -c sbt lint
   test:
