@@ -33,12 +33,12 @@ jobs:
         extra_nix_config: |
           experimental-features = nix-command flakes
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-    - name: Cache Nix Store
+    - name: Setup Cachix
       uses: cachix/cachix-action@v14
+      continue-on-error: true
       with:
         name: zionomicon
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-        skipPush: ${{ github.event_name == 'pull_request' }}
     - name: Cache SBT and Coursier
       uses: actions/cache@v4
       with:
@@ -69,12 +69,12 @@ jobs:
         extra_nix_config: |
           experimental-features = nix-command flakes
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-    - name: Cache Nix Store
+    - name: Setup Cachix
       uses: cachix/cachix-action@v14
+      continue-on-error: true
       with:
         name: zionomicon
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-        skipPush: ${{ github.event_name == 'pull_request' }}
     - name: Cache SBT and Coursier
       uses: actions/cache@v4
       with:
@@ -112,12 +112,12 @@ jobs:
         extra_nix_config: |
           experimental-features = nix-command flakes
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-    - name: Cache Nix Store
+    - name: Setup Cachix
       uses: cachix/cachix-action@v14
+      continue-on-error: true
       with:
         name: zionomicon
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-        skipPush: ${{ github.event_name == 'pull_request' }}
     - name: Cache SBT and Coursier
       uses: actions/cache@v4
       with:
@@ -125,10 +125,11 @@ jobs:
           ~/.sbt
           ~/.cache/coursier
           ~/.ivy2/cache
-        key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/build.properties') }}
+        key: ${{ runner.os }}-sbt-java${{ matrix.java }}-${{ hashFiles('**/build.sbt', '**/build.properties') }}
         restore-keys: |
+          ${{ runner.os }}-sbt-java${{ matrix.java }}-
           ${{ runner.os }}-sbt-
-    - name: Setup Java ${{ matrix.java }}
+    - name: Setup Test Environment with Java ${{ matrix.java }}
       run: |
         cat > flake-test.nix << 'EOF'
         {
@@ -140,8 +141,14 @@ jobs:
             let pkgs = nixpkgs.legacyPackages.x86_64-linux;
             in {
               devShells.x86_64-linux.default = pkgs.mkShell {
-                buildInputs = [ pkgs.jdk${{ matrix.java }}_headless pkgs.sbt pkgs.libuv pkgs.coursier ];
+                buildInputs = [ 
+                  pkgs.jdk${{ matrix.java }}_headless 
+                  pkgs.sbt 
+                  pkgs.libuv 
+                  pkgs.coursier 
+                ];
                 JAVA_HOME = "${pkgs.jdk${{ matrix.java }}_headless}";
+                SBT_OPTS = "-Xmx2G -XX:+UseG1GC";
               };
             };
         }

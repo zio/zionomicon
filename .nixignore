@@ -1,0 +1,35 @@
+# Nix build ignores
+# Files that should not be included in Nix builds
+
+# Build outputs
+target/
+result
+result-*
+
+# IDE
+.metals/
+.bloop/
+.idea/
+.vscode/
+metals.sbt
+
+# SBT
+sbt.json
+
+# Temporary files
+*.tmp
+*.swp
+*.log
+*.bak
+*~
+
+# Git
+.git/
+.gitignore
+
+# CI
+.github/
+
+# Documentation (optional, comment out if needed in build)
+*.md
+docs/
