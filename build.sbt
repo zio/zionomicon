@@ -11,8 +11,8 @@ inThisBuild {
 }
 
 libraryDependencies ++= Seq(
-  "dev.zio"      %% "zio"              % "2.1.19",
-  "dev.zio"      %% "zio-test"         % "2.1.19",
+  "dev.zio"      %% "zio"              % "2.1.21",
+  "dev.zio"      %% "zio-test"         % "2.1.21",
   "dev.zio"      %% "zio-interop-cats" % "23.1.0.5",
   "org.tpolecat" %% "doobie-core"      % "1.0.0-RC9",
   "org.tpolecat" %% "doobie-hikari"    % "1.0.0-RC9",
