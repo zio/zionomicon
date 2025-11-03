@@ -93,8 +93,8 @@ package HubBroadcasting {
 
       override def join(username: String): ZIO[Scope, Nothing, UserSession] =
         for {
-          _ <- activeUsersRef.update(_ + username)
-          _ <- hub.publish(ChatEvent.UserJoined(username, LocalDateTime.now()))
+          _            <- activeUsersRef.update(_ + username)
+          _            <- hub.publish(ChatEvent.UserJoined(username, LocalDateTime.now()))
           subscription <- hub.subscribe
 
           _ <- ZIO.addFinalizer {
