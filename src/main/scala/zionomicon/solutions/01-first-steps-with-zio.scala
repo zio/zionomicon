@@ -355,8 +355,8 @@ object FirstStepsWithZIO {
       body: ZIO[R, E, A]
     )(condition: A => Boolean): ZIO[R, E, A] =
       body.flatMap { a =>
-        if (condition(a)) ZIO.succeed(a)
-        else doWhile(body)(condition)
+        if (condition(a)) doWhile(body)(condition)
+        else ZIO.succeed(a)
       }
   }
 }
