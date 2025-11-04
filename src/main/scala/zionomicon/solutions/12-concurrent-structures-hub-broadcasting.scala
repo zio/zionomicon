@@ -489,7 +489,7 @@ package HubBroadcasting {
                                      .orDie
                               _ <- ZIO.sleep(
                                      Duration.fromMillis(
-                                       100 + (scala.util.Random.nextInt(200))
+                                       100L + (scala.util.Random.nextInt(200))
                                      )
                                    )
                             } yield ()
