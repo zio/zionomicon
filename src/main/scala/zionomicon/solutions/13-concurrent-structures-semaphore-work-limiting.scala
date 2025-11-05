@@ -68,20 +68,22 @@ package SemaphoreWorkLimiting {
             ZIO.acquireReleaseWith(acquire)(_ => release)(_ => zio)
           }
 
-          def updatePermits(delta: Int): UIO[Unit] = state.modify {
-            case (max, active, queue) =>
-              val newMax = max + delta
-              if (delta > 0) {
-                // Increase permits - update max and wake up waiters
-                val toWake      = queue.take(delta.min(queue.size))
-                val remaining   = queue.drop(delta.min(queue.size))
-                val wakeEffects = ZIO.foreachDiscard(toWake)(_.succeed(()))
-                (wakeEffects, (newMax, active + toWake.size, remaining))
-              } else {
-                // Decrease permits - just update max
-                (ZIO.unit, (newMax, active, queue))
-              }
-          }.flatten
+          def updatePermits(delta: Int): UIO[Unit] =
+            ZIO.uninterruptible {
+              state.modify { case (max, active, queue) =>
+                val newMax = max + delta
+                if (delta > 0) {
+                  // Increase permits - update max and wake up waiters
+                  val toWake      = queue.take(delta.min(queue.size))
+                  val remaining   = queue.drop(delta.min(queue.size))
+                  val wakeEffects = ZIO.foreachDiscard(toWake)(_.succeed(()))
+                  (wakeEffects, (newMax, active + toWake.size, remaining))
+                } else {
+                  // Decrease permits - just update max
+                  (ZIO.unit, (newMax, active, queue))
+                }
+              }.flatten
+            }
 
           def currentPermits: UIO[Int] = state.get.map(_._1)
         }
