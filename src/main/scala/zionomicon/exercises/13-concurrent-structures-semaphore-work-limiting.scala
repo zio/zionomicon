@@ -17,6 +17,13 @@ package SemaphoreWorkLimiting {
    *
    * Challenge: Ensure that reducing permits doesn't affect already-running
    * tasks, only future acquisitions.
+   *
+   * Hint: Please note that implementing the withPermit method will require
+   * careful handling of resource acquisition and release to ensure that the
+   * acquired permit is properly released after the task completes, regardless
+   * of whether it succeeds, fails, or is interrupted. Consider using ZIO's
+   * `ZIO.acquireRelease*` to manage this lifecycle effectively, which will be
+   * discussed in the next chapter.
    */
   package DynamicSemaphoreImpl {}
 
