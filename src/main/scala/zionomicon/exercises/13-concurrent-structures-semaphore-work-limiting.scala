@@ -33,8 +33,7 @@ package SemaphoreWorkLimiting {
    *  }
    * }}}
    *
-   * Must prevent both deadlock and starvation Hint: Use semaphore to limit how
-   * many philosophers can try to pick up forks
+   * Must prevent both deadlock and starvation.
    */
   package DiningPhilosophersImpl {}
 }
