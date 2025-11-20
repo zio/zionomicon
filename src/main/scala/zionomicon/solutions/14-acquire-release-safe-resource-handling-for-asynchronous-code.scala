@@ -44,6 +44,7 @@ package ResourceHanlding {
    */
   package RewriteLegacySendData {
     import zio._
+
     import java.net.{ServerSocket, Socket}
 
     object SocketClient extends ZIOAppDefault {
@@ -144,7 +145,185 @@ package ResourceHanlding {
    *      Write a test to ensure that `ZIO.acquireReleaseWith` guarantees the
    *      three rules discussed in this chapter.
    */
-  package AcquireReleaseWithImpl {}
+  package AcquireReleaseWithImpl {
+
+    import zio._
+    import zio.test._
+
+    /**
+     * Implementation of ZIO.acquireReleaseWith using ZIO.uninterruptibleMask
+     */
+    object AcquireReleaseImpl {
+
+      def acquireReleaseWith[R, E, A, B](
+        acquire: ZIO[R, E, A]
+      )(
+        release: A => ZIO[R, Nothing, Any]
+      )(use: A => ZIO[R, E, B]): ZIO[R, E, B] =
+        ZIO.uninterruptibleMask { restore =>
+          // Step 1: Run acquire uninterruptibly (we're already in uninterruptible region)
+          acquire.flatMap { resource =>
+            // Step 2: Restore interruptibility for the use action and capture its exit result
+            restore(use(resource)).exit.flatMap { exit =>
+              // Step 3: Run release uninterruptibly, then complete with the original exit result
+              release(resource).uninterruptible *> ZIO.suspendSucceed(exit)
+            }
+          }
+        }
+    }
+
+    /**
+     * Comprehensive test suite to verify the three guarantees:
+     *   1. The `acquire` action will be performed uninterruptibly.
+     *   2. The `release` action will be performed uninterruptibly.
+     *   3. If the `acquire` action successfully completes execution, then the
+     *      `release` action will be performed as soon as the `use` action
+     *      completes execution, regardless of how `use` completes execution.
+     */
+    object AcquireReleaseWithSpec extends ZIOSpecDefault {
+      import AcquireReleaseImpl._
+
+      def spec = suite("AcquireReleaseWith Implementation")(
+        // Test 1: Acquire is uninterruptible
+        test("acquire runs uninterruptibly even when interrupted") {
+          for {
+            acquireInterrupted <- Ref.make(false)
+            latch1             <- Promise.make[Nothing, Unit]
+            latch2             <- Promise.make[Nothing, Unit]
+
+            acquire =
+              (latch1.succeed(()) *> latch2.await)
+                .map(_ => "resource")
+                .onInterrupt(
+                  acquireInterrupted.set(true)
+                )
+
+            release = (_: String) => ZIO.unit
+            use     = (_: String) => ZIO.unit
+
+            fiber <- acquireReleaseWith(acquire)(release)(use).fork
+            _     <- latch1.await *> fiber.interrupt *> latch2.succeed(())
+            _     <- fiber.join
+
+            acquireInterrupted <- acquireInterrupted.get
+          } yield assertTrue(!acquireInterrupted)
+        },
+
+        // Test 2: Release is uninterruptible
+        test("release runs uninterruptibly even when interrupted") {
+          for {
+            latch1             <- Promise.make[Nothing, Unit]
+            latch2             <- Promise.make[Nothing, Unit]
+            releaseInterrupted <- Ref.make(false)
+
+            acquire = ZIO.succeed("resource")
+            release = (_: String) =>
+                        (latch1.succeed(()) *> latch2.await)
+                          .onInterrupt(releaseInterrupted.set(true))
+            use = (_: String) => ZIO.unit
+
+            fiber              <- acquireReleaseWith(acquire)(release)(use).fork
+            _                  <- latch1.await *> fiber.interrupt *> latch2.succeed(())
+            _                  <- fiber.join
+            releaseInterrupted <- releaseInterrupted.get
+          } yield assertTrue(!releaseInterrupted)
+        },
+
+        // Test 3a: Release is called when use succeeds
+        test("release is called when use completes successfully") {
+          for {
+            released <- Ref.make(false)
+
+            acquire = ZIO.succeed("resource")
+            release = (_: String) => released.set(true)
+            use     = (_: String) => ZIO.succeed(42)
+
+            result      <- acquireReleaseWith(acquire)(release)(use)
+            wasReleased <- released.get
+          } yield assertTrue(
+            result == 42,
+            wasReleased
+          )
+        },
+
+        // Test 3b: Release is called when use fails
+        test("release is called when use fails") {
+          for {
+            released <- Ref.make(false)
+
+            acquire = ZIO.succeed("resource")
+            release = (_: String) => released.set(true)
+            use     = (_: String) => ZIO.fail("error")
+
+            result      <- acquireReleaseWith(acquire)(release)(use).exit
+            wasReleased <- released.get
+          } yield assertTrue(
+            result.isFailure,
+            wasReleased
+          )
+        },
+
+        // Test 3c: Release is called when use is interrupted
+        test("release is called when use is interrupted") {
+          for {
+            released   <- Ref.make(false)
+            useStarted <- Promise.make[Nothing, Unit]
+
+            acquire = ZIO.succeed("resource")
+            release = (_: String) => released.set(true)
+            use     = (_: String) => useStarted.succeed(()) *> ZIO.never
+
+            fiber <- acquireReleaseWith(acquire)(release)(use).fork
+            _     <- useStarted.await *> fiber.interrupt
+
+            wasReleased <- released.get
+          } yield assertTrue(wasReleased)
+        },
+
+        // Test 4: If acquire fails, release is not called
+        test("release is not called if acquire fails") {
+          for {
+            released <- Ref.make(false)
+
+            acquire = ZIO.fail("acquire failed")
+            release = (_: String) => released.set(true)
+            use     = (_: String) => ZIO.succeed(())
+
+            result      <- acquireReleaseWith(acquire)(release)(use).exit
+            wasReleased <- released.get
+          } yield assertTrue(
+            result.isFailure,
+            !wasReleased
+          )
+        },
+
+        // Test 5: Use action can be interruptible
+        test("use action is interruptible by default") {
+          for {
+            useInterrupted <- Ref.make(false)
+            released       <- Ref.make(false)
+            latch          <- Promise.make[Nothing, Unit]
+
+            acquire = ZIO.succeed("resource")
+            release = (_: String) => released.set(true)
+            use = (_: String) =>
+                    (latch.succeed(()) *> ZIO.never)
+                      .onInterrupt(useInterrupted.set(true))
+
+            fiber <- acquireReleaseWith(acquire)(release)(use).fork
+            _     <- latch.await *> fiber.interrupt
+
+            interrupted <- useInterrupted.get
+            wasReleased <- released.get
+          } yield assertTrue(
+            interrupted, // Use was interrupted
+            wasReleased  // But the release still ran
+          )
+        }
+      )
+    }
+
+  }
 
   /**
    *   3. Implement a simple semaphore using `Ref` and `Promise` and using
