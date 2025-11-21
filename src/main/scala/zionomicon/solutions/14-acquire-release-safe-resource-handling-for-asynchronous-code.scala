@@ -342,5 +342,147 @@ package ResourceHanlding {
    * }
    * }}}
    */
-  package SemaphoreImpl {}
+  package SemaphoreImpl {
+
+    import zio._
+    import scala.collection.immutable.Queue
+
+    /**
+     * A semaphore is a synchronization primitive that controls access to a
+     * common resource by multiple fibers using a counter that tracks available
+     * permits.
+     */
+    trait Semaphore {
+
+      /**
+       * Executes a task with the specified number of permits. Acquires n
+       * permits before running the task and releases them afterwards, even if
+       * the task fails or is interrupted.
+       *
+       * @param n
+       *   the number of permits to acquire
+       * @param task
+       *   the task to execute with the acquired permits
+       */
+      def withPermits[R, E, A](n: Long)(task: ZIO[R, E, A]): ZIO[R, E, A]
+    }
+
+    object Semaphore {
+
+      /**
+       * Internal state of the semaphore.
+       *
+       * @param permits
+       *   the number of currently available permits
+       * @param waiting
+       *   queue of fibers waiting for permits, each with their required permit
+       *   count and a promise to complete when ready
+       */
+      private case class State(
+        permits: Long,
+        waiting: Queue[(Long, Promise[Nothing, Unit])]
+      )
+
+      /**
+       * Creates a new semaphore with the specified number of permits.
+       *
+       * @param permits
+       *   the initial number of permits (must be non-negative)
+       * @return
+       *   a new Semaphore instance
+       */
+      def make(permits: => Long): UIO[Semaphore] =
+        Ref.make(State(permits, Queue.empty)).map { ref =>
+          new Semaphore {
+
+            /**
+             * Acquires n permits from the semaphore. If not enough permits are
+             * available, the fiber will wait.
+             */
+            private def acquire(n: Long): UIO[Unit] =
+              ZIO.suspendSucceed {
+                if (n <= 0) {
+                  // No permits needed, proceed immediately
+                  ZIO.unit
+                } else {
+                  Promise.make[Nothing, Unit].flatMap { promise =>
+                    ref.modify { state =>
+                      if (state.permits >= n) {
+                        // Enough permits available, acquire them immediately
+                        (
+                          ZIO.unit,
+                          state.copy(permits = state.permits - n)
+                        )
+                      } else {
+                        // Not enough permits, add to waiting queue
+                        (
+                          promise.await,
+                          state
+                            .copy(waiting = state.waiting.enqueue((n, promise)))
+                        )
+                      }
+                    }.flatten
+                  }
+                }
+              }
+
+            /**
+             * Releases n permits back to the semaphore. This may wake up
+             * waiting fibers if they can now proceed.
+             */
+            private def release(n: Long): UIO[Unit] = {
+
+              /**
+               * Attempts to satisfy waiting fibers with the available permits.
+               * Recursively checks the queue and completes promises for fibers
+               * that can now proceed.
+               */
+              def satisfyWaiters(state: State): (UIO[Unit], State) =
+                state.waiting.dequeueOption match {
+                  case Some(((needed, promise), rest))
+                      if state.permits >= needed =>
+                    // This waiter can proceed - they have enough permits
+                    val newState = state.copy(
+                      permits = state.permits - needed,
+                      waiting = rest
+                    )
+                    // Recursively check if we can satisfy more waiters
+                    val (moreEffects, finalState) = satisfyWaiters(newState)
+                    (
+                      promise.succeed(()) *> moreEffects,
+                      finalState
+                    )
+                  case _ =>
+                    // Either queue is empty or next waiter needs more permits
+                    (ZIO.unit, state)
+                }
+
+              ZIO.suspendSucceed {
+                if (n <= 0) {
+                  ZIO.unit
+                } else {
+                  ref.modify { state =>
+                    // First, add the released permits back
+                    val stateWithPermits =
+                      state.copy(permits = state.permits + n)
+                    // Then try to satisfy any waiting fibers
+                    satisfyWaiters(stateWithPermits)
+                  }.flatten
+                }
+              }
+            }
+
+            /**
+             * Executes a task with n permits using acquireReleaseWith to ensure
+             * permits are always released, even on failure or interruption.
+             */
+            def withPermits[R, E, A](
+              n: Long
+            )(task: ZIO[R, E, A]): ZIO[R, E, A] =
+              ZIO.acquireReleaseWith(acquire(n))(_ => release(n))(_ => task)
+          }
+        }
+    }
+
+  }
 }
