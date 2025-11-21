@@ -23,6 +23,6 @@ scalacOptions ++= Seq(
   "-deprecation"
 )
 
-stdSettings()
+stdSettings(turnCompilerWarningIntoErrors = false)
 
 enablePlugins(ZioSbtCiPlugin, ZioSbtEcosystemPlugin)
