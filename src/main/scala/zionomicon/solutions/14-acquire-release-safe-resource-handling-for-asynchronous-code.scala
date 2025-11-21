@@ -432,11 +432,6 @@ package ResourceHanlding {
              */
             private def release(n: Long): UIO[Unit] = {
 
-              /**
-               * Attempts to satisfy waiting fibers with the available permits.
-               * Recursively checks the queue and completes promises for fibers
-               * that can now proceed.
-               */
               def satisfyWaiters(state: State): (UIO[Unit], State) =
                 state.waiting.dequeueOption match {
                   case Some(((needed, promise), rest))
