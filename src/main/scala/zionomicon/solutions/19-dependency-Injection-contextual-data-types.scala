@@ -555,6 +555,677 @@ package DependencyInjectionContextualDataTypes {
    *      successfully or all completed actions are rolled back through their
    *      compensating actions.
    */
-  package DistributedTransactionManagerImpl {}
+  package DistributedTransactionManagerImpl {
 
+    import zio._
+
+    /**
+     * Represents a saga transaction step with both a forward action and a
+     * compensating action. The forward action executes the business logic,
+     * while the compensating action undoes the effects if the saga needs to be
+     * rolled back.
+     */
+    case class SagaStep[R, E, A](
+      name: String,
+      action: ZIO[R, E, A],
+      compensation: A => ZIO[R, Nothing, Unit]
+    )
+
+    object SagaStep {
+
+      /**
+       * Create a saga step with a named action and compensation.
+       */
+      def apply[R, E, A](
+        name: String,
+        action: ZIO[R, E, A],
+        compensation: A => ZIO[R, Nothing, Unit]
+      ): SagaStep[R, E, A] =
+        new SagaStep(name, action, compensation)
+
+      /**
+       * Create a saga step where compensation doesn't need the action result.
+       */
+      def simple[R, E](
+        name: String,
+        action: ZIO[R, E, Unit],
+        compensation: ZIO[R, Nothing, Unit]
+      ): SagaStep[R, E, Unit] =
+        SagaStep(name, action, _ => compensation)
+    }
+
+    /**
+     * Internal state tracking executed steps and their compensations.
+     */
+    case class ExecutedStep[R](
+      name: String,
+      compensate: ZIO[R, Nothing, Unit]
+    )
+
+    /**
+     * The SagaTransaction service tracks the execution state of a saga,
+     * maintaining the stack of completed steps for potential rollback.
+     */
+    trait SagaTransaction {
+
+      /**
+       * Execute a saga step, recording it for potential compensation.
+       */
+      def executeStep[R, E, A](step: SagaStep[R, E, A]): ZIO[R, E, A]
+
+      /**
+       * Get the history of executed steps (for debugging/monitoring).
+       */
+      def getHistory: UIO[List[String]]
+
+      /**
+       * Internal method to get the executed steps for compensation. This is
+       * only used by the SagaTransactionManager.
+       */
+      private[DistributedTransactionManagerImpl] def getExecutedSteps
+        : UIO[List[ExecutedStep[Any]]]
+    }
+
+    object SagaTransaction {
+
+      /**
+       * Reference-based implementation of SagaTransaction. Tracks executed
+       * steps in the order they were executed.
+       */
+      private[DistributedTransactionManagerImpl] final case class SagaTransactionImpl(
+        executedSteps: Ref[List[ExecutedStep[Any]]]
+      ) extends SagaTransaction {
+
+        def executeStep[R1, E, A](step: SagaStep[R1, E, A]): ZIO[R1, E, A] =
+          for {
+            _      <- ZIO.logDebug(s"Executing saga step: ${step.name}")
+            result <- step.action
+            _ <-
+              executedSteps.update { steps =>
+                ExecutedStep(
+                  step.name,
+                  step
+                    .compensation(result)
+                    .asInstanceOf[ZIO[Any, Nothing, Unit]]
+                ) :: steps
+              }
+            _ <- ZIO.logDebug(s"Successfully executed saga step: ${step.name}")
+          } yield result
+
+        def getHistory: UIO[List[String]] =
+          executedSteps.get.map(_.reverse.map(_.name))
+
+        def getExecutedSteps: UIO[List[ExecutedStep[Any]]] =
+          executedSteps.get.map(_.asInstanceOf[List[ExecutedStep[Any]]])
+      }
+
+      object SagaTransactionImpl {
+        def make(
+          ref: Ref[List[ExecutedStep[Any]]]
+        ): SagaTransaction =
+          new SagaTransactionImpl(ref)
+
+        def empty: UIO[SagaTransaction] =
+          Ref
+            .make[List[ExecutedStep[Any]]](List.empty)
+            .map(SagaTransactionImpl(_))
+      }
+
+      /**
+       * Access the current SagaTransaction from the environment.
+       */
+      val get: URIO[SagaTransaction, SagaTransaction] =
+        ZIO.service[SagaTransaction]
+
+      /**
+       * Execute a saga step using the transaction from the environment.
+       */
+      def executeStep[R, E, A](
+        step: SagaStep[R, E, A]
+      ): ZIO[R with SagaTransaction, E, A] =
+        ZIO.serviceWithZIO[SagaTransaction](_.executeStep(step))
+
+      /**
+       * Get the execution history from the current transaction.
+       */
+      def getHistory: URIO[SagaTransaction, List[String]] =
+        ZIO.serviceWithZIO[SagaTransaction](_.getHistory)
+
+      /**
+       * Internal method to compensate all executed steps in reverse order.
+       */
+      private[DistributedTransactionManagerImpl] def compensateAll(
+        transaction: SagaTransaction
+      ): ZIO[Any, Nothing, Unit] =
+        transaction.getExecutedSteps.flatMap { steps =>
+          ZIO.debug(s"Rolling back ${steps.size} saga steps") *>
+            ZIO.foreachDiscard(steps) { step =>
+              ZIO.logDebug(s"Compensating step: ${step.name}") *>
+                step.compensate.catchAllCause(cause =>
+                  ZIO.logError(s"Compensation failed for ${step.name}: $cause")
+                )
+            }
+        }
+
+      val live: ULayer[SagaTransaction] =
+        ZLayer {
+          Ref
+            .make[List[ExecutedStep[Any]]](List.empty)
+            .map(SagaTransactionImpl(_))
+        }
+    }
+
+    /**
+     * The SagaTransactionManager orchestrates saga execution with automatic
+     * rollback.
+     */
+    trait SagaTransactionManager {
+
+      /**
+       * Execute a saga transaction. If any step fails, all completed steps are
+       * compensated in reverse order.
+       */
+      def executeTransaction[R, E, A](
+        saga: ZIO[R with SagaTransaction, E, A]
+      ): ZIO[R, E, A]
+    }
+
+    object SagaTransactionManager {
+      final case class LiveSagaTransactionManager()
+          extends SagaTransactionManager {
+
+        def executeTransaction[R, E, A](
+          saga: ZIO[R with SagaTransaction, E, A]
+        ): ZIO[R, E, A] =
+          for {
+            _           <- ZIO.debug("Starting saga transaction")
+            transaction <- SagaTransaction.SagaTransactionImpl.empty
+            env         <- ZIO.environment[R]
+            result <-
+              saga
+                .provideEnvironment(env.add[SagaTransaction](transaction))
+                .tapError { error =>
+                  ZIO.logWarning(s"Saga transaction failed: $error") *>
+                    SagaTransaction.compensateAll(transaction)
+                }
+            _ <- ZIO.debug("Saga transaction completed successfully")
+          } yield result
+      }
+
+      /**
+       * Execute a saga transaction using the manager from the environment. This
+       * is a convenience method that extracts the manager from the environment
+       * and delegates to its executeTransaction method.
+       */
+      def executeTransaction[R, E, A](
+        saga: ZIO[R with SagaTransaction, E, A]
+      ): ZIO[R with SagaTransactionManager, E, A] =
+        ZIO.serviceWithZIO[SagaTransactionManager](
+          _.executeTransaction[R, E, A](saga)
+        )
+
+      val live: ULayer[SagaTransactionManager] =
+        ZLayer.succeed(LiveSagaTransactionManager())
+    }
+
+    // ============================================================================
+    // Example Domain Services
+    // ============================================================================
+
+    object types {
+      type TransactionId   = String
+      type ReservationId   = String
+      type ShipmentId      = String
+      type OrderId         = String
+      type ProductId       = String
+      type ShipmentAddress = String
+    }
+    import types._
+
+    /**
+     * Example: Payment service that can charge and refund.
+     */
+    trait PaymentService {
+      def charge(
+        orderId: OrderId,
+        amount: BigDecimal
+      ): IO[String, TransactionId]
+      def refund(transactionId: TransactionId): UIO[Unit]
+    }
+
+    object PaymentService {
+      case class InMemoryPaymentService(
+        transactions: Ref[Map[TransactionId, (OrderId, BigDecimal)]]
+      ) extends PaymentService {
+
+        def charge(
+          orderId: OrderId,
+          amount: BigDecimal
+        ): IO[String, TransactionId] =
+          for {
+            _             <- ZIO.debug(s"Charging $amount for order $orderId")
+            _             <- ZIO.sleep(100.millis) // Simulate network call
+            transactionId <- Random.nextUUID.map(_.toString)
+            _             <- transactions.update(_ + (transactionId -> (orderId, amount)))
+            _             <- ZIO.debug(s"Payment successful: $transactionId")
+          } yield transactionId
+
+        def refund(transactionId: TransactionId): UIO[Unit] =
+          for {
+            _    <- ZIO.debug(s"Refunding transaction $transactionId")
+            _    <- ZIO.sleep(100.millis)
+            txns <- transactions.get
+            _ <- ZIO.foreachDiscard(txns.get(transactionId)) {
+                   case (orderId, amount) =>
+                     ZIO.debug(s"Refunded $amount for order $orderId")
+                 }
+            _ <- transactions.update(_ - transactionId)
+          } yield ()
+      }
+
+      val live: ULayer[PaymentService] =
+        ZLayer {
+          Ref
+            .make(Map.empty[String, (String, BigDecimal)])
+            .map(InMemoryPaymentService(_))
+        }
+
+      def charge(
+        orderId: String,
+        amount: BigDecimal
+      ): ZIO[PaymentService, String, TransactionId] =
+        ZIO.serviceWithZIO[PaymentService](_.charge(orderId, amount))
+
+      def refund(transactionId: TransactionId): URIO[PaymentService, Unit] =
+        ZIO.serviceWithZIO[PaymentService](_.refund(transactionId))
+    }
+
+    /**
+     * Example: Inventory service that can reserve and release stock.
+     */
+    trait InventoryService {
+      def reserve(
+        productId: ProductId,
+        quantity: Int
+      ): IO[String, ReservationId]
+      def release(reservationId: ReservationId): UIO[Unit]
+    }
+
+    object InventoryService {
+      case class InMemoryInventoryService(
+        inventory: Ref[Map[ProductId, Int]],
+        reservations: Ref[Map[ReservationId, (ProductId, Int)]]
+      ) extends InventoryService {
+
+        def reserve(
+          productId: ProductId,
+          quantity: Int
+        ): IO[String, ReservationId] =
+          for {
+            _     <- ZIO.debug(s"Reserving $quantity of product $productId")
+            _     <- ZIO.sleep(100.millis)
+            stock <- inventory.get.map(_.getOrElse(productId, 0))
+            _ <- ZIO
+                   .fail(s"Insufficient stock for $productId")
+                   .when(stock < quantity)
+            reservationId <- Random.nextUUID.map(_.toString)
+            _ <-
+              inventory.update(inv => inv + (productId -> (stock - quantity)))
+            _ <-
+              reservations.update(_ + (reservationId -> (productId, quantity)))
+            _ <- ZIO.debug(s"Reservation successful: $reservationId")
+          } yield reservationId
+
+        def release(reservationId: ReservationId): UIO[Unit] =
+          for {
+            _   <- ZIO.debug(s"Releasing reservation $reservationId")
+            _   <- ZIO.sleep(100.millis)
+            res <- reservations.get
+            _ <- ZIO.foreachDiscard(res.get(reservationId)) {
+                   case (productId, quantity) =>
+                     inventory.update(inv =>
+                       inv + (productId -> (inv
+                         .getOrElse(productId, 0) + quantity))
+                     ) *> ZIO.debug(
+                       s"Released $quantity of product $productId"
+                     )
+                 }
+            _ <- reservations.update(_ - reservationId)
+          } yield ()
+      }
+
+      def withInitialStock(
+        stock: Map[ProductId, Int]
+      ): ULayer[InventoryService] =
+        ZLayer {
+          for {
+            inventory    <- Ref.make(stock)
+            reservations <- Ref.make(Map.empty[String, (String, Int)])
+          } yield InMemoryInventoryService(inventory, reservations)
+        }
+
+      val live: ULayer[InventoryService] = withInitialStock(Map.empty)
+
+      def reserve(
+        productId: ProductId,
+        quantity: Int
+      ): ZIO[InventoryService, String, ReservationId] =
+        ZIO.serviceWithZIO[InventoryService](_.reserve(productId, quantity))
+
+      def release(reservationId: ReservationId): URIO[InventoryService, Unit] =
+        ZIO.serviceWithZIO[InventoryService](_.release(reservationId))
+    }
+
+    /**
+     * Example: Shipping service that can schedule and cancel shipments.
+     */
+    trait ShippingService {
+      def schedule(
+        orderId: OrderId,
+        address: ShipmentAddress
+      ): IO[String, ShipmentId]
+      def cancel(shipmentId: ShipmentId): UIO[Unit]
+    }
+
+    object ShippingService {
+      case class InMemoryShippingService(
+        shipments: Ref[Map[ShipmentId, (OrderId, ShipmentAddress)]]
+      ) extends ShippingService {
+
+        def schedule(
+          orderId: OrderId,
+          address: ShipmentAddress
+        ): IO[String, ShipmentId] =
+          for {
+            _ <-
+              ZIO.debug(s"Scheduling shipment for order $orderId to $address")
+            _          <- ZIO.sleep(100.millis)
+            shipmentId <- Random.nextUUID.map(_.toString)
+            _          <- shipments.update(_ + (shipmentId -> (orderId, address)))
+            _          <- ZIO.debug(s"Shipment scheduled: $shipmentId")
+          } yield shipmentId
+
+        def cancel(shipmentId: ShipmentId): UIO[Unit] =
+          for {
+            _    <- ZIO.debug(s"Cancelling shipment $shipmentId")
+            _    <- ZIO.sleep(100.millis)
+            shps <- shipments.get
+            _ <- ZIO.foreachDiscard(shps.get(shipmentId)) {
+                   case (orderId, address) =>
+                     ZIO.debug(s"Cancelled shipment for order $orderId")
+                 }
+            _ <- shipments.update(_ - shipmentId)
+          } yield ()
+      }
+
+      val live: ULayer[ShippingService] =
+        ZLayer {
+          Ref
+            .make(Map.empty[ShipmentId, (OrderId, ShipmentAddress)])
+            .map(InMemoryShippingService(_))
+        }
+
+      def schedule(
+        orderId: OrderId,
+        address: ShipmentAddress
+      ): ZIO[ShippingService, String, ShipmentId] =
+        ZIO.serviceWithZIO[ShippingService](_.schedule(orderId, address))
+
+      def cancel(shipmentId: ShipmentId): URIO[ShippingService, Unit] =
+        ZIO.serviceWithZIO[ShippingService](_.cancel(shipmentId))
+    }
+
+    // ============================================================================
+    // Example Saga: Order Processing
+    // ============================================================================
+    case class OrderRequest(
+      orderId: OrderId,
+      productId: ProductId,
+      quantity: Int,
+      amount: BigDecimal,
+      shippingAddress: ShipmentAddress
+    )
+
+    case class OrderResult(
+      orderId: OrderId,
+      transactionId: TransactionId,
+      reservationId: ReservationId,
+      shipmentId: ShipmentId
+    )
+
+    object OrderProcessingSaga {
+
+      /**
+       * Process an order using a saga pattern with automatic rollback on
+       * failure.
+       *
+       * Steps:
+       *   1. Reserve inventory
+       *   2. Charge payment
+       *   3. Schedule shipment
+       *
+       * If any step fails, all previous steps are compensated in reverse order.
+       */
+      def processOrder(
+        request: OrderRequest
+      ): ZIO[
+        PaymentService
+          with InventoryService
+          with ShippingService
+          with SagaTransaction,
+        String,
+        OrderResult
+      ] =
+        for {
+          // Step 1: Reserve inventory
+          reservationId <- SagaTransaction.executeStep(
+                             SagaStep(
+                               name = "Reserve Inventory",
+                               action = InventoryService
+                                 .reserve(request.productId, request.quantity),
+                               compensation = (resId: String) =>
+                                 InventoryService.release(resId)
+                             )
+                           )
+
+          // Step 2: Charge payment
+          transactionId <-
+            SagaTransaction.executeStep(
+              SagaStep(
+                name = "Charge Payment",
+                action = PaymentService.charge(request.orderId, request.amount),
+                compensation =
+                  (txId: TransactionId) => PaymentService.refund(txId)
+              )
+            )
+
+          // Step 3: Schedule shipment
+          shipmentId <- SagaTransaction.executeStep(
+                          SagaStep(
+                            name = "Schedule Shipment",
+                            action = ShippingService.schedule(
+                              request.orderId,
+                              request.shippingAddress
+                            ),
+                            compensation = (shipId: ShipmentId) =>
+                              ShippingService.cancel(shipId)
+                          )
+                        )
+
+          _ <- ZIO.debug(s"Order ${request.orderId} processed successfully")
+
+        } yield OrderResult(
+          request.orderId,
+          transactionId,
+          reservationId,
+          shipmentId
+        )
+    }
+
+    // ============================================================================
+    // Example Application & Tests
+    // ============================================================================
+    object SagaExamples extends ZIOAppDefault {
+
+      /**
+       * Example 1: Successful saga execution
+       */
+      val successfulOrder: ZIO[
+        SagaTransactionManager
+          with PaymentService
+          with InventoryService
+          with ShippingService,
+        String,
+        OrderResult
+      ] = {
+        val request = OrderRequest(
+          orderId = "ORDER-001",
+          productId = "PROD-123",
+          quantity = 2,
+          amount = BigDecimal(99.99),
+          shippingAddress = "123 Main St"
+        )
+
+        SagaTransactionManager.executeTransaction(
+          OrderProcessingSaga.processOrder(request)
+        )
+      }
+
+      /**
+       * Example 2: Saga with failure in payment step (requires rollback)
+       */
+      val failedPaymentOrder: ZIO[
+        SagaTransactionManager
+          with PaymentService
+          with InventoryService
+          with ShippingService,
+        String,
+        OrderResult
+      ] = {
+        val request = OrderRequest(
+          orderId = "ORDER-002",
+          productId = "PROD-456",
+          quantity = 1,
+          amount = BigDecimal(199.99),
+          shippingAddress = "456 Oak Ave"
+        )
+
+        // Inject a payment service that will fail
+        val failingPaymentService = ZLayer.succeed(
+          new PaymentService {
+            def charge(
+              orderId: String,
+              amount: BigDecimal
+            ): IO[String, String] =
+              ZIO.debug(s"Payment service failing for order $orderId") *>
+                ZIO.sleep(100.millis) *>
+                ZIO.fail("Payment gateway timeout")
+
+            def refund(transactionId: String): UIO[Unit] =
+              ZIO.debug(
+                s"Refund called for $transactionId (should not happen)"
+              )
+          }
+        )
+
+        SagaTransactionManager
+          .executeTransaction[
+            PaymentService with InventoryService with ShippingService,
+            String,
+            OrderResult
+          ](
+            OrderProcessingSaga.processOrder(request)
+          )
+          .provideSomeLayer[
+            InventoryService with ShippingService with SagaTransactionManager
+          ](failingPaymentService)
+      }
+
+      /**
+       * Example 3: Saga with failure in shipping step (requires rollback of
+       * inventory and payment)
+       */
+      val failedShippingOrder: ZIO[
+        SagaTransactionManager
+          with PaymentService
+          with InventoryService
+          with ShippingService,
+        String,
+        OrderResult
+      ] = {
+        val request = OrderRequest(
+          orderId = "ORDER-003",
+          productId = "PROD-789",
+          quantity = 3,
+          amount = BigDecimal(299.99),
+          shippingAddress = "789 Pine Rd"
+        )
+
+        // Inject a shipping service that will fail
+        val failingShippingService = ZLayer.succeed(
+          new ShippingService {
+            def schedule(orderId: String, address: String): IO[String, String] =
+              ZIO.debug(s"Shipping service failing for order $orderId") *>
+                ZIO.sleep(100.millis) *>
+                ZIO.fail("Shipping service unavailable")
+
+            def cancel(shipmentId: String): UIO[Unit] =
+              ZIO.debug(
+                s"Cancel shipment called for $shipmentId (should not happen)"
+              )
+          }
+        )
+
+        SagaTransactionManager
+          .executeTransaction[
+            PaymentService with InventoryService with ShippingService,
+            String,
+            OrderResult
+          ](
+            OrderProcessingSaga.processOrder(request)
+          )
+          .provideSomeLayer[
+            PaymentService with InventoryService with SagaTransactionManager
+          ](failingShippingService)
+      }
+
+      def run = {
+        val program = for {
+          _ <- ZIO.debug("=" * 80)
+          _ <- ZIO.debug("Example 1: Successful order processing")
+          _ <- ZIO.debug("=" * 80)
+          _ <- successfulOrder
+
+          _ <- ZIO.debug("\n" + "=" * 80)
+          _ <- ZIO.debug(
+                 "Example 2: Order with payment failure (rollback inventory)"
+               )
+          _ <- ZIO.debug("=" * 80)
+          _ <- failedPaymentOrder.catchAll(err =>
+                 ZIO.logError(s"Order failed as expected: $err")
+               )
+
+          _ <- ZIO.debug("\n" + "=" * 80)
+          _ <-
+            ZIO.debug(
+              "Example 3: Order with shipping failure (rollback payment and inventory)"
+            )
+          _ <- ZIO.debug("=" * 80)
+          _ <- failedShippingOrder.catchAll(err =>
+                 ZIO.logError(s"Order failed as expected: $err")
+               )
+
+        } yield ()
+
+        program.provide(
+          SagaTransactionManager.live,
+          PaymentService.live,
+          InventoryService.withInitialStock(
+            Map("PROD-123" -> 10, "PROD-456" -> 5, "PROD-789" -> 8)
+          ),
+          ShippingService.live
+        )
+      }
+    }
+  }
 }
