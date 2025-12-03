@@ -1086,7 +1086,11 @@ package DependencyInjectionContextualDataTypes {
           shippingAddress = "123 Main St"
         )
 
-        SagaTransactionManager.executeTransaction(
+        SagaTransactionManager.executeTransaction[
+          PaymentService with InventoryService with ShippingService,
+          String,
+          OrderResult
+        ](
           OrderProcessingSaga.processOrder(request)
         )
       }
