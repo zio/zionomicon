@@ -281,7 +281,7 @@ package ConfiguringZIOApplications {
      */
     object EnvironmentBasedConfigProvider {
 
-        def fromString(s: String): Option[String] = s.toLowerCase match {
+      def fromString(s: String): Option[String] = s.toLowerCase match {
         case "development" | "dev" => Some("Development.conf")
         case "testing" | "test"    => Some("Testing.conf")
         case "production" | "prod" => Some("Production.conf")
@@ -338,6 +338,116 @@ package ConfiguringZIOApplications {
    *   3. Write a configuration descriptor for the `DatabaseConfig` which only
    *      accepts either `MysqlConfig` or `SqliteConfig` configurations.
    */
-  package DatabaseConfigImpl {}
+  package DatabaseConfigImpl {
 
+    import zio.Config.Secret
+    import zio._
+
+    /**
+     * A sum type representing database configurations. Only MySQL or SQLite
+     * configurations are accepted.
+     */
+    sealed trait DatabaseConfig
+
+    object DatabaseConfig {
+
+      case class MysqlConfig(
+        host: String,
+        port: Int,
+        database: String,
+        username: String,
+        password: Secret
+      ) extends DatabaseConfig
+
+      case class SqliteConfig(
+        path: String,
+        inMemory: Boolean = false
+      ) extends DatabaseConfig
+
+      // Config descriptor for MySQL
+      val mysqlConfig: Config[MysqlConfig] = {
+        Config.string("host") zip
+          Config.int("port").withDefault(3306) zip
+          Config.string("database") zip
+          Config.string("username") zip
+          Config.secret("password")
+      }.map { case (host, port, database, username, password) =>
+        MysqlConfig(host, port, database, username, password)
+      }.nested("mysql")
+
+      // Config descriptor for SQLite
+      val sqliteConfig: Config[SqliteConfig] = {
+        Config.string("path") zip
+          Config.boolean("in-memory").withDefault(false)
+      }.map { case (path, inMemory) =>
+        SqliteConfig(path, inMemory)
+      }.nested("sqlite")
+
+      /**
+       * Combined config descriptor that accepts either MySQL or SQLite.
+       *
+       * Uses `orElse` to try parsing as MySQL first, then SQLite. The presence
+       * of `mysql` or `sqlite` nested keys determines which variant is loaded.
+       *
+       * Example HOCON:
+       *
+       * {{{
+       * database {
+       *   mysql {
+       *     host = "localhost"
+       *     port = 3306
+       *     database = "mydb"
+       *     username = "user"
+       *     password = "secret"
+       *   }
+       * }
+       * }}}
+       *
+       * OR
+       *
+       * {{{
+       * database {
+       *   sqlite {
+       *     path = "/data/app.db"
+       *     in-memory = false
+       *   }
+       * }
+       * }}}
+       */
+      implicit val config: Config[DatabaseConfig] =
+        mysqlConfig.orElse(sqliteConfig).nested("database")
+    }
+
+    // Example usage
+    object ExampleApp extends ZIOAppDefault {
+
+      def run = {
+        val mysqlExample = Map(
+          "database.mysql.host"     -> "localhost",
+          "database.mysql.port"     -> "3306",
+          "database.mysql.database" -> "myapp",
+          "database.mysql.username" -> "admin",
+          "database.mysql.password" -> "secret123"
+        )
+
+        val sqliteExample = Map(
+          "database.sqlite.path"      -> "/var/data/app.db",
+          "database.sqlite.in-memory" -> "false"
+        )
+
+        for {
+          mysql <- ZIO.withConfigProvider(ConfigProvider.fromMap(mysqlExample)) {
+                     ZIO.config[DatabaseConfig]
+                   }
+          _ <- Console.printLine(s"MySQL config: $mysql")
+
+          sqlite <-
+            ZIO.withConfigProvider(ConfigProvider.fromMap(sqliteExample)) {
+              ZIO.config[DatabaseConfig]
+            }
+          _ <- Console.printLine(s"SQLite config: $sqlite")
+        } yield ()
+      }
+    }
+  }
 }
