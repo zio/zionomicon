@@ -201,7 +201,18 @@ package StmComposingAtomicity {
         }
     }
 
-    object CountDownLatchExamples {
+    object CountDownLatchExamples extends ZIOAppDefault {
+      val examples = List(
+        ("Basic Countdown", example1Basic),
+        ("Concurrent Fibers", example2Concurrent),
+        ("Multiple Waiters", example3MultipleWaiters),
+        ("Batch Processor", example4BatchProcessor)
+      )
+
+      def run =
+        ZIO.foreachDiscard(examples) { case (name, example) =>
+          ZIO.succeed(println(s"\n=== $name ===")) *> example
+        }
 
       /**
        * Example 1: Basic countdown - single fiber increments count and awaits
@@ -211,15 +222,18 @@ package StmComposingAtomicity {
           latch <- CountDownLatch.make(3)
 
           // Simulate three fibers completing work
-          _ <- ZIO.foreachDiscard(1 to 3) { i =>
-                 ZIO.succeed(println(s"Work $i starting")) *>
-                   ZIO.sleep(100.millis) *>
-                   ZIO.succeed(println(s"Work $i completed")) *>
-                   latch.countDown
-               }
+          _ <- ZIO
+                 .foreachDiscard(1 to 3) { i =>
+                   ZIO.succeed(println(s"Work $i starting")) *>
+                     ZIO.sleep(100.millis) *>
+                     ZIO.succeed(println(s"Work $i completed")) *>
+                     latch.countDown
+                 }
+                 .fork
 
           // Main fiber waits for all work to complete
           _ <- ZIO.succeed(println("Waiting for all work to complete..."))
+          // This will suspend until count reaches zero (comment this line to see the difference)
           _ <- latch.await
           _ <- ZIO.succeed(println("All work completed!"))
         } yield ()
@@ -246,11 +260,9 @@ package StmComposingAtomicity {
 
           // Waiter fiber that waits for all workers
           waiter = for {
-                     _ <- ZIO.succeed(
-                            println("Waiter: starting to wait for workers...")
-                          )
+                     _ <- ZIO.debug("Waiter: starting to wait for workers...")
                      _ <- latch.await
-                     _ <- ZIO.succeed(println("Waiter: all workers completed!"))
+                     _ <- ZIO.debug("Waiter: all workers completed!")
                    } yield ()
 
           // Run workers in parallel and waiter concurrently
@@ -273,17 +285,16 @@ package StmComposingAtomicity {
           // Multiple waiters
           waiter = (waiterId: Int) =>
                      for {
-                       _ <- ZIO.succeed(println(s"Waiter $waiterId: waiting"))
+                       _ <- ZIO.debug(s"Waiter $waiterId: waiting")
                        _ <- latch.await
-                       _ <- ZIO.succeed(println(s"Waiter $waiterId: released"))
+                       _ <- ZIO.debug(s"Waiter $waiterId: released")
                      } yield ()
 
           // Workers
           worker = (workerId: Int) =>
                      for {
                        _ <- ZIO.sleep((Math.random() * 200).toLong.millis)
-                       _ <-
-                         ZIO.succeed(println(s"Worker $workerId: completing"))
+                       _ <- ZIO.debug(s"Worker $workerId: completing")
                        _ <- latch.countDown
                      } yield ()
 
@@ -312,20 +323,19 @@ package StmComposingAtomicity {
             latch <- CountDownLatch.make(itemCount)
 
             // Process items in parallel
-            _ <-
-              ZIO.succeed(println(s"Batch $batchId: starting $itemCount items"))
+            _ <- ZIO.debug(s"Batch $batchId: starting $itemCount items")
 
             items =
               (1 to itemCount).map { itemId =>
                 ZIO.sleep((Math.random() * 100).toLong.millis) *>
-                  ZIO.succeed(println(s"Batch $batchId: item $itemId done")) *>
+                  ZIO.debug(s"Batch $batchId: item $itemId done") *>
                   latch.countDown
               }
 
             _ <- ZIO.collectAllParDiscard(items)
             _ <- latch.await
 
-            _ <- ZIO.succeed(println(s"Batch $batchId: all items complete"))
+            _ <- ZIO.debug(s"Batch $batchId: all items complete")
           } yield ()
 
         for {
@@ -334,26 +344,6 @@ package StmComposingAtomicity {
           _ <- processBatch(3, 2)
         } yield ()
       }
-
-      /**
-       * Run all examples
-       */
-      def runAll: ZIO[Any, Nothing, Unit] = {
-        val examples = List(
-          ("Basic Countdown", example1Basic),
-          ("Concurrent Fibers", example2Concurrent),
-          ("Multiple Waiters", example3MultipleWaiters),
-          ("Batch Processor", example4BatchProcessor)
-        )
-
-        ZIO.foreachDiscard(examples) { case (name, example) =>
-          ZIO.succeed(println(s"\n=== $name ===")) *> example
-        }
-      }
-    }
-
-    object Main extends ZIOAppDefault {
-      def run = CountDownLatchExamples.runAll
     }
   }
 
