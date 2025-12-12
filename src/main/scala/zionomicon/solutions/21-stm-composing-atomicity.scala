@@ -351,7 +351,6 @@ package StmComposingAtomicity {
    *   3. Implement a Read-writer Lock using STM. A read-writer lock allows
    *      multiple readers to access a resource concurrently but requires
    *      exclusive access for writers. Implement the following operations:
-   *      \index{Reader-writer Lock}
    *
    * {{{
    * trait ReadWriteLock {
@@ -360,5 +359,66 @@ package StmComposingAtomicity {
    * }
    * }}}
    */
-  package ReadWriteLockImpl {}
+  package ReadWriteLockImpl {
+    import zio._
+    import zio.stm._
+
+    trait ReadWriteLock {
+      def readWith[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A]
+      def writeWith[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A]
+    }
+
+    object ReadWriteLock {
+
+      /**
+       * Creates a new Read-Writer Lock using STM.
+       *
+       * Semantics:
+       *   - Multiple readers can hold the lock simultaneously
+       *   - Only one writer can hold the lock at a time
+       *   - Writers require exclusive access (no readers or other writers)
+       */
+      def make: UIO[ReadWriteLock] =
+        for {
+          readers <- TRef.make(0).commit     // Count of active readers
+          writer  <- TRef.make(false).commit // Whether a writer is active
+        } yield new ReadWriteLock {
+
+          // Acquire read lock: succeeds if no writer is active
+          private val acquireRead: USTM[Unit] =
+            for {
+              isWriting <- writer.get
+              _         <- if (isWriting) STM.retry else STM.unit
+              _         <- readers.update(_ + 1)
+            } yield ()
+
+          // Release read lock: decrement reader count
+          private val releaseRead: USTM[Unit] =
+            readers.update(_ - 1)
+
+          // Acquire write lock: succeeds only if no readers AND no writer
+          private val acquireWrite: USTM[Unit] =
+            for {
+              isWriting   <- writer.get
+              readerCount <- readers.get
+              _           <- if (isWriting || readerCount > 0) STM.retry else STM.unit
+              _           <- writer.set(true)
+            } yield ()
+
+          // Release write lock
+          private val releaseWrite: USTM[Unit] =
+            writer.set(false)
+
+          def readWith[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A] =
+            ZIO.acquireReleaseWith(acquireRead.commit)(_ => releaseRead.commit)(
+              _ => zio
+            )
+
+          def writeWith[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A] =
+            ZIO.acquireReleaseWith(acquireWrite.commit)(_ =>
+              releaseWrite.commit
+            )(_ => zio)
+        }
+    }
+  }
 }
