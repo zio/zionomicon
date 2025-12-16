@@ -225,9 +225,12 @@ package SemaphoreWorkLimiting {
             duration: Duration
           ): ZIO[Any, Nothing, Map[Int, Int]] =
             for {
-              fibers <- ZIO.foreachParDiscard((0 until 5).toList)(id =>
-                          philosopherLifecycle(id)
-                        ).timeout(duration).unit
+              fibers <- ZIO
+                          .foreachParDiscard((0 until 5).toList)(id =>
+                            philosopherLifecycle(id)
+                          )
+                          .timeout(duration)
+                          .unit
               meals <- mealsEaten.get
             } yield meals
         }

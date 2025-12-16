@@ -19,9 +19,8 @@ package StmComposingAtomicity {
    *     allowing it to proceed only after all countdowns have been completed.
    *
    * Note: This exercise is for educational purposes to help you understand the
-   * basics of STM. ZIO already provides a
-   * `CountDownLatch` implementation with more basic
-   * concurrency primitives.
+   * basics of STM. ZIO already provides a `CountDownLatch` implementation with
+   * more basic concurrency primitives.
    */
   package CountdownLatchImpl {}
 
