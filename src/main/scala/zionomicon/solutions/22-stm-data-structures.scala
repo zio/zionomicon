@@ -71,26 +71,26 @@ package StmDataStructures {
     import types._
 
     final case class Order(
-                            id: Long,
-                            stock: Stock,
-                            price: Double,
-                            quantity: Int,
-                            isBuy: Boolean,
-                            timestamp: Long
-                          )
+      id: Long,
+      stock: Stock,
+      price: Double,
+      quantity: Int,
+      isBuy: Boolean,
+      timestamp: Long
+    )
 
     final case class Trade(
-                            buyOrderId: Long,
-                            sellOrderId: Long,
-                            stock: Stock,
-                            price: Double,
-                            quantity: Int
-                          )
+      buyOrderId: Long,
+      sellOrderId: Long,
+      stock: Stock,
+      price: Double,
+      quantity: Int
+    )
 
     final case class OrderBook(
-                                buyQueue: TPriorityQueue[Order],
-                                sellQueue: TPriorityQueue[Order]
-                              )
+      buyQueue: TPriorityQueue[Order],
+      sellQueue: TPriorityQueue[Order]
+    )
 
     object OrderBook {
       def empty: USTM[OrderBook] =
@@ -115,24 +115,24 @@ package StmDataStructures {
     }
 
     final case class TradingSystem(
-                                    orderBooks: TMap[Stock, OrderBook],
-                                    trades: TRef[List[Trade]],
-                                    handledStocks: TSet[Stock],
-                                    matchers: Ref[Map[Stock, Fiber[Nothing, Unit]]],
-                                    nextOrderId: Ref[Long]
-                                  ) {
+      orderBooks: TMap[Stock, OrderBook],
+      trades: TRef[List[Trade]],
+      handledStocks: TSet[Stock],
+      matchers: Ref[Map[Stock, Fiber[Nothing, Unit]]],
+      nextOrderId: Ref[Long]
+    ) {
 
       def orderBook(stock: Stock): USTM[OrderBook] =
         for {
           maybeBook <- orderBooks.get(stock)
           book <- maybeBook match {
-            case Some(b) => STM.succeed(b)
-            case None =>
-              for {
-                newBook <- OrderBook.empty
-                _       <- orderBooks.put(stock, newBook)
-              } yield newBook
-          }
+                    case Some(b) => STM.succeed(b)
+                    case None =>
+                      for {
+                        newBook <- OrderBook.empty
+                        _       <- orderBooks.put(stock, newBook)
+                      } yield newBook
+                  }
         } yield book
 
       def recordTrade(trade: Trade): USTM[Unit] =
@@ -145,9 +145,9 @@ package StmDataStructures {
        * Attempt to match a single buy order with a single sell order
        */
       private def attemptOneMatch(
-                                   book: OrderBook,
-                                   stock: Stock
-                                 ): USTM[Trade] =
+        book: OrderBook,
+        stock: Stock
+      ): USTM[Trade] =
         for {
           buyOrder  <- book.buyQueue.peek
           sellOrder <- book.sellQueue.peek
@@ -172,15 +172,15 @@ package StmDataStructures {
                 _ <- book.sellQueue.take
 
                 _ <- STM.when(newBuyQty > 0) {
-                  book.buyQueue.offer(
-                    buyOrder.copy(quantity = newBuyQty)
-                  )
-                }
+                       book.buyQueue.offer(
+                         buyOrder.copy(quantity = newBuyQty)
+                       )
+                     }
                 _ <- STM.when(newSellQty > 0) {
-                  book.sellQueue.offer(
-                    sellOrder.copy(quantity = newSellQty)
-                  )
-                }
+                       book.sellQueue.offer(
+                         sellOrder.copy(quantity = newSellQty)
+                       )
+                     }
               } yield trade
             } else STM.retry
         } yield matchResult
@@ -202,8 +202,8 @@ package StmDataStructures {
        * the current scope
        */
       private def spawnMatcher(
-                                stock: Stock
-                              ): ZIO[Scope, Nothing, Fiber[Nothing, Unit]] =
+        stock: Stock
+      ): ZIO[Scope, Nothing, Fiber[Nothing, Unit]] =
         startMatcherForStock(stock).forkScoped
 
       /**
@@ -230,30 +230,30 @@ package StmDataStructures {
         for {
           // Atomically find the next unhandled stock
           nextStocks <- STM.atomically {
-            for {
-              currentStocks <- getAllStocks
-              handled       <- handledStocks.toSet
-              newStocks      = currentStocks -- handled
+                          for {
+                            currentStocks <- getAllStocks
+                            handled       <- handledStocks.toSet
+                            newStocks      = currentStocks -- handled
 
-              // If no new stocks, retry waits until a new order book is created
-              nextStocks <- if (newStocks.isEmpty)
-                STM.retry
-              else
-                STM.succeed(newStocks)
+                            // If no new stocks, retry waits until a new order book is created
+                            nextStocks <- if (newStocks.isEmpty)
+                                            STM.retry
+                                          else
+                                            STM.succeed(newStocks)
 
-              // Mark ALL new stocks as handled atomically
-              _ <-
-                STM.foreachDiscard(nextStocks)(handledStocks.put)
-            } yield nextStocks
-          }
+                            // Mark ALL new stocks as handled atomically
+                            _ <-
+                              STM.foreachDiscard(nextStocks)(handledStocks.put)
+                          } yield nextStocks
+                        }
 
           // Now spawn matchers for ALL new stocks concurrently
           _ <- ZIO.foreachParDiscard(nextStocks) { stock =>
-            for {
-              fiber <- spawnMatcher(stock)
-              _     <- matchers.update(_ + (stock -> fiber))
-            } yield ()
-          }
+                 for {
+                   fiber <- spawnMatcher(stock)
+                   _     <- matchers.update(_ + (stock -> fiber))
+                 } yield ()
+               }
         } yield ()
       }.forever
 
@@ -272,21 +272,21 @@ package StmDataStructures {
                   for {
                     maybeBook <- orderBooks.get(stock)
                     found <- maybeBook match {
-                      case None => loop(rest)
-                      case Some(book) =>
-                        for {
-                          buyOrders  <- book.buyQueue.toList
-                          sellOrders <- book.sellQueue.toList
-                          hasOrder =
-                            buyOrders.exists(_.id == orderId) ||
-                              sellOrders.exists(_.id == orderId)
-                          result <-
-                            if (hasOrder)
-                              STM.succeed(Some(stock))
-                            else
-                              loop(rest)
-                        } yield result
-                    }
+                               case None => loop(rest)
+                               case Some(book) =>
+                                 for {
+                                   buyOrders  <- book.buyQueue.toList
+                                   sellOrders <- book.sellQueue.toList
+                                   hasOrder =
+                                     buyOrders.exists(_.id == orderId) ||
+                                       sellOrders.exists(_.id == orderId)
+                                   result <-
+                                     if (hasOrder)
+                                       STM.succeed(Some(stock))
+                                     else
+                                       loop(rest)
+                                 } yield result
+                             }
                   } yield found
               }
             loop(stocks)
@@ -298,18 +298,18 @@ package StmDataStructures {
           for {
             maybeStock <- findStockForOrder(orderId)
             result <- maybeStock match {
-              case None => STM.succeed(false)
-              case Some(stock) =>
-                for {
-                  book       <- orderBooks.getOrElseSTM(stock, ZSTM.retry)
-                  buyOrders  <- book.buyQueue.toList
-                  sellOrders <- book.sellQueue.toList
-                  found = buyOrders.exists(_.id == orderId) ||
-                    sellOrders.exists(_.id == orderId)
-                  _ <- book.buyQueue.removeIf(_.id == orderId)
-                  _ <- book.sellQueue.removeIf(_.id == orderId)
-                } yield found
-            }
+                        case None => STM.succeed(false)
+                        case Some(stock) =>
+                          for {
+                            book       <- orderBooks.getOrElseSTM(stock, ZSTM.retry)
+                            buyOrders  <- book.buyQueue.toList
+                            sellOrders <- book.sellQueue.toList
+                            found = buyOrders.exists(_.id == orderId) ||
+                                      sellOrders.exists(_.id == orderId)
+                            _ <- book.buyQueue.removeIf(_.id == orderId)
+                            _ <- book.sellQueue.removeIf(_.id == orderId)
+                          } yield found
+                      }
           } yield result
         }
 
@@ -324,100 +324,100 @@ package StmDataStructures {
        * found
        */
       def updateOrder(
-                       orderId: Long,
-                       newPrice: Option[Double] = None,
-                       newQuantity: Option[Int] = None
-                     ): UIO[Boolean] =
+        orderId: Long,
+        newPrice: Option[Double] = None,
+        newQuantity: Option[Int] = None
+      ): UIO[Boolean] =
         STM.atomically {
           for {
             maybeStock <- findStockForOrder(orderId)
             result <- maybeStock match {
-              case None => STM.succeed(false)
-              case Some(stock) =>
-                for {
-                  book       <- orderBooks.getOrElseSTM(stock, ZSTM.retry)
-                  buyOrders  <- book.buyQueue.toList
-                  sellOrders <- book.sellQueue.toList
+                        case None => STM.succeed(false)
+                        case Some(stock) =>
+                          for {
+                            book       <- orderBooks.getOrElseSTM(stock, ZSTM.retry)
+                            buyOrders  <- book.buyQueue.toList
+                            sellOrders <- book.sellQueue.toList
 
-                  (isBuy, maybeOrder) = {
-                    val found = buyOrders.find(_.id == orderId)
-                    if (found.isDefined) (true, found)
-                    else (false, sellOrders.find(_.id == orderId))
-                  }
-
-                  updated <- maybeOrder match {
-                    case None => STM.succeed(false)
-                    case Some(order) =>
-                      val updatedPrice =
-                        newPrice.getOrElse(order.price)
-                      val updatedQty =
-                        newQuantity.getOrElse(
-                          order.quantity
-                        )
-
-                      if (updatedQty <= 0) {
-                        // Cancel the order TODO: why not using cancel order?
-                        for {
-                          _ <- book.buyQueue.removeIf(
-                            _.id == orderId
-                          )
-                          _ <- book.sellQueue.removeIf(
-                            _.id == orderId
-                          )
-                        } yield true
-                      } else {
-                        // Update the order
-                        val updatedOrder = order.copy(
-                          price = updatedPrice,
-                          quantity = updatedQty
-                        )
-
-                        for {
-                          _ <-
-                            if (isBuy) {
-                              for {
-                                _ <-
-                                  STM.foreach(buyOrders) {
-                                    _ =>
-                                      book.buyQueue.take
-                                  }
-                                updatedBuyOrders =
-                                  buyOrders
-                                    .filterNot(
-                                      _.id == orderId
-                                    ) :+ updatedOrder
-                                _ <-
-                                  STM.foreach(
-                                    updatedBuyOrders
-                                  ) { o =>
-                                    book.buyQueue.offer(o)
-                                  }
-                              } yield ()
-                            } else {
-                              for {
-                                _ <- STM.foreach(
-                                  sellOrders
-                                ) { _ =>
-                                  book.sellQueue.take
-                                }
-                                updatedSellOrders =
-                                  sellOrders
-                                    .filterNot(
-                                      _.id == orderId
-                                    ) :+ updatedOrder
-                                _ <-
-                                  STM.foreach(
-                                    updatedSellOrders
-                                  ) { o =>
-                                    book.sellQueue.offer(o)
-                                  }
-                              } yield ()
+                            (isBuy, maybeOrder) = {
+                              val found = buyOrders.find(_.id == orderId)
+                              if (found.isDefined) (true, found)
+                              else (false, sellOrders.find(_.id == orderId))
                             }
-                        } yield true
+
+                            updated <- maybeOrder match {
+                                         case None => STM.succeed(false)
+                                         case Some(order) =>
+                                           val updatedPrice =
+                                             newPrice.getOrElse(order.price)
+                                           val updatedQty =
+                                             newQuantity.getOrElse(
+                                               order.quantity
+                                             )
+
+                                           if (updatedQty <= 0) {
+                                             // Cancel the order TODO: why not using cancel order?
+                                             for {
+                                               _ <- book.buyQueue.removeIf(
+                                                      _.id == orderId
+                                                    )
+                                               _ <- book.sellQueue.removeIf(
+                                                      _.id == orderId
+                                                    )
+                                             } yield true
+                                           } else {
+                                             // Update the order
+                                             val updatedOrder = order.copy(
+                                               price = updatedPrice,
+                                               quantity = updatedQty
+                                             )
+
+                                             for {
+                                               _ <-
+                                                 if (isBuy) {
+                                                   for {
+                                                     _ <-
+                                                       STM.foreach(buyOrders) {
+                                                         _ =>
+                                                           book.buyQueue.take
+                                                       }
+                                                     updatedBuyOrders =
+                                                       buyOrders
+                                                         .filterNot(
+                                                           _.id == orderId
+                                                         ) :+ updatedOrder
+                                                     _ <-
+                                                       STM.foreach(
+                                                         updatedBuyOrders
+                                                       ) { o =>
+                                                         book.buyQueue.offer(o)
+                                                       }
+                                                   } yield ()
+                                                 } else {
+                                                   for {
+                                                     _ <- STM.foreach(
+                                                            sellOrders
+                                                          ) { _ =>
+                                                            book.sellQueue.take
+                                                          }
+                                                     updatedSellOrders =
+                                                       sellOrders
+                                                         .filterNot(
+                                                           _.id == orderId
+                                                         ) :+ updatedOrder
+                                                     _ <-
+                                                       STM.foreach(
+                                                         updatedSellOrders
+                                                       ) { o =>
+                                                         book.sellQueue.offer(o)
+                                                       }
+                                                   } yield ()
+                                                 }
+                                             } yield true
+                                           }
+                                       }
+                          } yield updated
                       }
-                  }
-                } yield updated
-            }
           } yield result
         }
 
@@ -438,9 +438,9 @@ package StmDataStructures {
           for {
             book <- orderBook(order.stock)
             _ <- if (order.isBuy)
-              book.buyQueue.offer(order)
-            else
-              book.sellQueue.offer(order)
+                   book.buyQueue.offer(order)
+                 else
+                   book.sellQueue.offer(order)
           } yield order.id
         }
 
@@ -457,18 +457,18 @@ package StmDataStructures {
        * truth for all active orders.
        */
       def getOrderBook(
-                        stock: Stock
-                      ): UIO[Option[(List[Order], List[Order])]] = STM.atomically {
+        stock: Stock
+      ): UIO[Option[(List[Order], List[Order])]] = STM.atomically {
         for {
           maybeBook <- orderBooks.get(stock)
           result <- maybeBook match {
-            case None => STM.succeed(None)
-            case Some(book) =>
-              for {
-                buyOrders  <- book.buyQueue.toList
-                sellOrders <- book.sellQueue.toList
-              } yield Some((buyOrders, sellOrders))
-          }
+                      case None => STM.succeed(None)
+                      case Some(book) =>
+                        for {
+                          buyOrders  <- book.buyQueue.toList
+                          sellOrders <- book.sellQueue.toList
+                        } yield Some((buyOrders, sellOrders))
+                    }
         } yield result
       }
 
@@ -492,259 +492,259 @@ package StmDataStructures {
         def loop: ZIO[Scope, Nothing, Unit] =
           for {
             _ <- Console
-              .printLine("\n[Enter order or 'help' for commands]> ")
-              .orDie
+                   .printLine("\n[Enter order or 'help' for commands]> ")
+                   .orDie
             input <- ZIO
-              .attempt(StdIn.readLine())
-              .orElse(ZIO.succeed(""))
+                       .attempt(StdIn.readLine())
+                       .orElse(ZIO.succeed(""))
 
             shouldContinue <- input.trim.toLowerCase match {
-              case "exit" =>
-                Console
-                  .printLine("Shutting down...")
-                  .orDie
-                  .as(false)
+                                case "exit" =>
+                                  Console
+                                    .printLine("Shutting down...")
+                                    .orDie
+                                    .as(false)
 
-              case "help" =>
-                showHelp().as(true)
+                                case "help" =>
+                                  showHelp().as(true)
 
-              case "trades" =>
-                for {
-                  allTrades <- getTrades
-                  _ <- if (allTrades.isEmpty) {
-                    Console
-                      .printLine(
-                        "No trades executed yet"
-                      )
-                      .orDie
-                  } else {
-                    Console
-                      .printLine(
-                        "=== Executed Trades ==="
-                      )
-                      .orDie *>
-                      ZIO.foreach(allTrades) { trade =>
-                        Console
-                          .printLine(
-                            s"Buy Order ${trade.buyOrderId} <-> Sell Order ${trade.sellOrderId}: " +
-                              s"${trade.quantity} ${trade.stock} @ ${trade.price}"
-                          )
-                          .orDie
-                      }
-                  }
-                } yield true
+                                case "trades" =>
+                                  for {
+                                    allTrades <- getTrades
+                                    _ <- if (allTrades.isEmpty) {
+                                           Console
+                                             .printLine(
+                                               "No trades executed yet"
+                                             )
+                                             .orDie
+                                         } else {
+                                           Console
+                                             .printLine(
+                                               "=== Executed Trades ==="
+                                             )
+                                             .orDie *>
+                                             ZIO.foreach(allTrades) { trade =>
+                                               Console
+                                                 .printLine(
+                                                   s"Buy Order ${trade.buyOrderId} <-> Sell Order ${trade.sellOrderId}: " +
+                                                     s"${trade.quantity} ${trade.stock} @ ${trade.price}"
+                                                 )
+                                                 .orDie
+                                             }
+                                         }
+                                  } yield true
 
-              case cmd if cmd.startsWith("book ") =>
-                val stock =
-                  input.trim.substring(5).toUpperCase
-                for {
-                  maybeBook <- getOrderBook(stock)
-                  _ <- maybeBook match {
-                    case None =>
-                      Console
-                        .printLine(
-                          s"No order book for $stock"
-                        )
-                        .orDie
-                    case Some((buyOrders, sellOrders)) =>
-                      for {
-                        _ <-
-                          Console
-                            .printLine(
-                              s"\n=== Order Book for $stock ==="
-                            )
-                            .orDie
-                        _ <- if (buyOrders.nonEmpty) {
-                          val buys = buyOrders
-                            .map(o =>
-                              s"${o.quantity}@${o.price}"
-                            )
-                            .mkString(", ")
-                          Console
-                            .printLine(
-                              s"Buy orders: $buys"
-                            )
-                            .orDie
-                        } else {
-                          Console
-                            .printLine(
-                              "No buy orders"
-                            )
-                            .orDie
-                        }
-                        _ <- if (sellOrders.nonEmpty) {
-                          val sells = sellOrders
-                            .map(o =>
-                              s"${o.quantity}@${o.price}"
-                            )
-                            .mkString(", ")
-                          Console
-                            .printLine(
-                              s"Sell orders: $sells"
-                            )
-                            .orDie
-                        } else {
-                          Console
-                            .printLine(
-                              "No sell orders"
-                            )
-                            .orDie
-                        }
-                      } yield ()
-                  }
-                } yield true
+                                case cmd if cmd.startsWith("book ") =>
+                                  val stock =
+                                    input.trim.substring(5).toUpperCase
+                                  for {
+                                    maybeBook <- getOrderBook(stock)
+                                    _ <- maybeBook match {
+                                           case None =>
+                                             Console
+                                               .printLine(
+                                                 s"No order book for $stock"
+                                               )
+                                               .orDie
+                                           case Some((buyOrders, sellOrders)) =>
+                                             for {
+                                               _ <-
+                                                 Console
+                                                   .printLine(
+                                                     s"\n=== Order Book for $stock ==="
+                                                   )
+                                                   .orDie
+                                               _ <- if (buyOrders.nonEmpty) {
+                                                      val buys = buyOrders
+                                                        .map(o =>
+                                                          s"${o.quantity}@${o.price}"
+                                                        )
+                                                        .mkString(", ")
+                                                      Console
+                                                        .printLine(
+                                                          s"Buy orders: $buys"
+                                                        )
+                                                        .orDie
+                                                    } else {
+                                                      Console
+                                                        .printLine(
+                                                          "No buy orders"
+                                                        )
+                                                        .orDie
+                                                    }
+                                               _ <- if (sellOrders.nonEmpty) {
+                                                      val sells = sellOrders
+                                                        .map(o =>
+                                                          s"${o.quantity}@${o.price}"
+                                                        )
+                                                        .mkString(", ")
+                                                      Console
+                                                        .printLine(
+                                                          s"Sell orders: $sells"
+                                                        )
+                                                        .orDie
+                                                    } else {
+                                                      Console
+                                                        .printLine(
+                                                          "No sell orders"
+                                                        )
+                                                        .orDie
+                                                    }
+                                             } yield ()
+                                         }
+                                  } yield true
 
-              case cmd if cmd.startsWith("cancel ") =>
-                val orderIdStr = input.trim.substring(7)
-                val result =
-                  try {
-                    val orderId = orderIdStr.toLong
-                    for {
-                      cancelled <- cancelOrder(orderId)
-                      _ <- if (cancelled) {
-                        Console
-                          .printLine(
-                            s"✓ Order $orderId cancelled"
-                          )
-                          .orDie
-                      } else {
-                        Console
-                          .printLine(
-                            s"✗ Order $orderId not found"
-                          )
-                          .orDie
-                      }
-                    } yield ()
-                  } catch {
-                    case _: Exception =>
-                      Console
-                        .printLine(
-                          s"Invalid order ID: $orderIdStr"
-                        )
-                        .orDie
-                  }
-                result.as(true)
+                                case cmd if cmd.startsWith("cancel ") =>
+                                  val orderIdStr = input.trim.substring(7)
+                                  val result =
+                                    try {
+                                      val orderId = orderIdStr.toLong
+                                      for {
+                                        cancelled <- cancelOrder(orderId)
+                                        _ <- if (cancelled) {
+                                               Console
+                                                 .printLine(
+                                                   s"✓ Order $orderId cancelled"
+                                                 )
+                                                 .orDie
+                                             } else {
+                                               Console
+                                                 .printLine(
+                                                   s"✗ Order $orderId not found"
+                                                 )
+                                                 .orDie
+                                             }
+                                      } yield ()
+                                    } catch {
+                                      case _: Exception =>
+                                        Console
+                                          .printLine(
+                                            s"Invalid order ID: $orderIdStr"
+                                          )
+                                          .orDie
+                                    }
+                                  result.as(true)
 
-              case cmd if cmd.startsWith("update ") =>
-                val parts =
-                  input.trim.substring(7).split("\\s+")
-                val result =
-                  try {
-                    if (parts.length < 1) {
-                      Console
-                        .printLine(
-                          "Usage: update <ORDER_ID> [<NEW_PRICE>] [<NEW_QUANTITY>]"
-                        )
-                        .orDie
-                    } else {
-                      val orderId = parts(0).toLong
-                      val newPrice =
-                        if (
-                          parts.length > 1 && parts(1) != "-"
-                        ) {
-                          Some(parts(1).toDouble)
-                        } else {
-                          None
-                        }
-                      val newQuantity =
-                        if (
-                          parts.length > 2 && parts(2) != "-"
-                        ) {
-                          Some(parts(2).toInt)
-                        } else {
-                          None
-                        }
+                                case cmd if cmd.startsWith("update ") =>
+                                  val parts =
+                                    input.trim.substring(7).split("\\s+")
+                                  val result =
+                                    try {
+                                      if (parts.length < 1) {
+                                        Console
+                                          .printLine(
+                                            "Usage: update <ORDER_ID> [<NEW_PRICE>] [<NEW_QUANTITY>]"
+                                          )
+                                          .orDie
+                                      } else {
+                                        val orderId = parts(0).toLong
+                                        val newPrice =
+                                          if (
+                                            parts.length > 1 && parts(1) != "-"
+                                          ) {
+                                            Some(parts(1).toDouble)
+                                          } else {
+                                            None
+                                          }
+                                        val newQuantity =
+                                          if (
+                                            parts.length > 2 && parts(2) != "-"
+                                          ) {
+                                            Some(parts(2).toInt)
+                                          } else {
+                                            None
+                                          }
 
-                      for {
-                        updated <- updateOrder(
-                          orderId,
-                          newPrice,
-                          newQuantity
-                        )
-                        _ <- if (updated) {
-                          val priceStr = newPrice
-                            .map(p => s"price: $p")
-                            .getOrElse(
-                              "price: unchanged"
-                            )
-                          val qtyStr = newQuantity
-                            .map(q => s"quantity: $q")
-                            .getOrElse(
-                              "quantity: unchanged"
-                            )
-                          Console
-                            .printLine(
-                              s"✓ Order $orderId updated ($priceStr, $qtyStr)"
-                            )
-                            .orDie
-                        } else {
-                          Console
-                            .printLine(
-                              s"✗ Order $orderId not found"
-                            )
-                            .orDie
-                        }
-                      } yield ()
-                    }
-                  } catch {
-                    case _: Exception =>
-                      Console
-                        .printLine(
-                          "Invalid update format. Usage: update <ORDER_ID> [<NEW_PRICE>] [<NEW_QUANTITY>]"
-                        )
-                        .orDie
-                  }
-                result.as(true)
+                                        for {
+                                          updated <- updateOrder(
+                                                       orderId,
+                                                       newPrice,
+                                                       newQuantity
+                                                     )
+                                          _ <- if (updated) {
+                                                 val priceStr = newPrice
+                                                   .map(p => s"price: $p")
+                                                   .getOrElse(
+                                                     "price: unchanged"
+                                                   )
+                                                 val qtyStr = newQuantity
+                                                   .map(q => s"quantity: $q")
+                                                   .getOrElse(
+                                                     "quantity: unchanged"
+                                                   )
+                                                 Console
+                                                   .printLine(
+                                                     s"✓ Order $orderId updated ($priceStr, $qtyStr)"
+                                                   )
+                                                   .orDie
+                                               } else {
+                                                 Console
+                                                   .printLine(
+                                                     s"✗ Order $orderId not found"
+                                                   )
+                                                   .orDie
+                                               }
+                                        } yield ()
+                                      }
+                                    } catch {
+                                      case _: Exception =>
+                                        Console
+                                          .printLine(
+                                            "Invalid update format. Usage: update <ORDER_ID> [<NEW_PRICE>] [<NEW_QUANTITY>]"
+                                          )
+                                          .orDie
+                                    }
+                                  result.as(true)
 
-              case cmd
-                if cmd.startsWith("buy ") || cmd.startsWith(
-                  "sell "
-                ) =>
-                for {
-                  now <-
-                    ZIO.clockWith(
-                      _.instant.map(_.toEpochMilli)
-                    )
-                  orderId <- nextOrderId.updateAndGet(_ + 1)
-                  _ <- parseOrder(input, orderId, now) match {
-                    case None =>
-                      Console
-                        .printLine(
-                          s"Invalid order format: $input"
-                        )
-                        .orDie *>
-                        Console
-                          .printLine(
-                            "Use: buy|sell <STOCK> <PRICE> <QUANTITY>"
-                          )
-                          .orDie
-                    case Some(order) =>
-                      for {
-                        _ <- placeOrder(order)
-                        side =
-                          if (order.isBuy) "Buy"
-                          else "Sell"
-                        _ <-
-                          Console
-                            .printLine(
-                              s"✓ Order placed: $side ${order.quantity} ${order.stock} @ ${order.price} (ID: ${order.id})"
-                            )
-                            .orDie
-                      } yield ()
-                  }
-                } yield true
+                                case cmd
+                                    if cmd.startsWith("buy ") || cmd.startsWith(
+                                      "sell "
+                                    ) =>
+                                  for {
+                                    now <-
+                                      ZIO.clockWith(
+                                        _.instant.map(_.toEpochMilli)
+                                      )
+                                    orderId <- nextOrderId.updateAndGet(_ + 1)
+                                    _ <- parseOrder(input, orderId, now) match {
+                                           case None =>
+                                             Console
+                                               .printLine(
+                                                 s"Invalid order format: $input"
+                                               )
+                                               .orDie *>
+                                               Console
+                                                 .printLine(
+                                                   "Use: buy|sell <STOCK> <PRICE> <QUANTITY>"
+                                                 )
+                                                 .orDie
+                                           case Some(order) =>
+                                             for {
+                                               _ <- placeOrder(order)
+                                               side =
+                                                 if (order.isBuy) "Buy"
+                                                 else "Sell"
+                                               _ <-
+                                                 Console
+                                                   .printLine(
+                                                     s"✓ Order placed: $side ${order.quantity} ${order.stock} @ ${order.price} (ID: ${order.id})"
+                                                   )
+                                                   .orDie
+                                             } yield ()
+                                         }
+                                  } yield true
 
-              case "" =>
-                ZIO.succeed(true)
+                                case "" =>
+                                  ZIO.succeed(true)
 
-              case _ =>
-                Console
-                  .printLine(
-                    s"Unknown command: '$input'. Type 'help' for available commands."
-                  )
-                  .orDie
-                  .as(true)
-            }
+                                case _ =>
+                                  Console
+                                    .printLine(
+                                      s"Unknown command: '$input'. Type 'help' for available commands."
+                                    )
+                                    .orDie
+                                    .as(true)
+                              }
 
             _ <- if (shouldContinue) loop else ZIO.unit
           } yield ()
@@ -753,10 +753,10 @@ package StmDataStructures {
       }
 
       private def parseOrder(
-                              input: String,
-                              orderId: Long,
-                              now: Long
-                            ): Option[Order] = {
+        input: String,
+        orderId: Long,
+        now: Long
+      ): Option[Order] = {
         val parts = input.trim.split("\\s+")
         if (parts.length < 4) None
         else {
@@ -834,12 +834,12 @@ package StmDataStructures {
           nextOrderIdRef   <- Ref.make(0L)
 
           system = TradingSystem(
-            orderBooksRef,
-            tradesRef,
-            handledStocksRef,
-            matchersRef,
-            nextOrderIdRef
-          )
+                     orderBooksRef,
+                     tradesRef,
+                     handledStocksRef,
+                     matchersRef,
+                     nextOrderIdRef
+                   )
 
           _ <- system.startMatcherSupervisor race system.startConsoleReader
         } yield system
