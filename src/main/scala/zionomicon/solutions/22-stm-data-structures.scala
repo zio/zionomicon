@@ -222,13 +222,10 @@ package StmDataStructures {
        * This is fully reactive - no busy-waiting, no polling intervals.
        * STM.retry automatically coordinates between order placement and matcher
        * spawning.
-       *
-       * TODO: What happens if between steps 4 and 5, the fiber gets
-       * interrupted?
        */
-      def startMatcherSupervisor: ZIO[Scope, Nothing, Unit] = {
+      def startMatcherSupervisor: ZIO[Scope, Nothing, Nothing] = {
         for {
-          // Atomically find the next unhandled stock
+          // Get the next unhandled stocks
           nextStocks <- STM.atomically {
                           for {
                             currentStocks <- getAllStocks
@@ -240,19 +237,22 @@ package StmDataStructures {
                                             STM.retry
                                           else
                                             STM.succeed(newStocks)
-
-                            // Mark ALL new stocks as handled atomically
-                            _ <-
-                              STM.foreachDiscard(nextStocks)(handledStocks.put)
                           } yield nextStocks
                         }
 
-          // Now spawn matchers for ALL new stocks concurrently
-          _ <- ZIO.foreachParDiscard(nextStocks) { stock =>
-                 for {
-                   fiber <- spawnMatcher(stock)
-                   _     <- matchers.update(_ + (stock -> fiber))
-                 } yield ()
+          _ <- ZIO.acquireRelease {
+                 // Spawn matchers for all new stocks concurrently
+                 ZIO.foreachParDiscard(nextStocks) { stock =>
+                   for {
+                     fiber <- spawnMatcher(stock)
+                     _     <- matchers.update(_ + (stock -> fiber))
+                   } yield ()
+                 }
+               } { _ =>
+                 // mark stocks as handled
+                 STM.atomically {
+                   STM.foreachDiscard(nextStocks)(handledStocks.put)
+                 }
                }
         } yield ()
       }.forever
