@@ -191,12 +191,18 @@ package SemaphoreWorkLimiting {
 
         } yield new DiningPhilosophers {
 
+          private def randomSleep: UIO[Unit] =
+            Random.nextIntBounded(100).flatMap(n => ZIO.sleep(n.millis))
+
           def philosopherLifecycle(id: Int): ZIO[Any, Nothing, Unit] = {
             val leftFork  = forks(id)
             val rightFork = forks((id + 1) % 5)
 
             def think: UIO[Unit] =
-              Random.nextIntBetween(50, 150).flatMap(ms => ZIO.sleep(ms.millis))
+              for {
+                _ <- Console.printLine(s"Philosopher $id is thinking").orDie
+                _ <- randomSleep
+              } yield ()
 
             def eat: UIO[Unit] =
               diningRoom.withPermit {
@@ -205,11 +211,8 @@ package SemaphoreWorkLimiting {
                     for {
                       _ <-
                         Console.printLine(s"Philosopher $id is eating").orDie
-                      _ <- ZIO.sleep(100.millis)
+                      _ <- randomSleep
                       _ <- mealsEaten.update(m => m + (id -> (m(id) + 1)))
-                      _ <- Console
-                             .printLine(s"Philosopher $id finished eating")
-                             .orDie
                     } yield ()
                   }
                 }
@@ -222,11 +225,12 @@ package SemaphoreWorkLimiting {
             duration: Duration
           ): ZIO[Any, Nothing, Map[Int, Int]] =
             for {
-              fibers <- ZIO.foreach((0 until 5).toList)(id =>
-                          philosopherLifecycle(id).fork
-                        )
-              _     <- ZIO.sleep(duration)
-              _     <- ZIO.foreach(fibers)(_.interrupt)
+              fibers <- ZIO
+                          .foreachParDiscard((0 until 5).toList)(id =>
+                            philosopherLifecycle(id)
+                          )
+                          .timeout(duration)
+                          .unit
               meals <- mealsEaten.get
             } yield meals
         }
