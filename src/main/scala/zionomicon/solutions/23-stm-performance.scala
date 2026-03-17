@@ -34,19 +34,12 @@ package StmPerformance {
      * fibers each write to different keys, all 100 transactions must retry
      * repeatedly because they're all modifying the same shared reference.
      */
-    final case class NaiveTMap[K, V] private (
-      private val map: TRef[Map[K, V]]
-    ) {
+    case class TMap[K, V] private (private val map: TRef[Map[K, V]]) {
       def put(key: K, value: V): STM[Nothing, Unit] =
         map.update(_ + (key -> value))
 
       def get(key: K): STM[Nothing, Option[V]] =
         map.get.map(_.get(key))
-    }
-
-    object NaiveTMap {
-      def empty[K, V]: UIO[NaiveTMap[K, V]] =
-        TRef.make(Map.empty[K, V]).commit.map(NaiveTMap(_))
     }
 
     /**
@@ -146,9 +139,10 @@ package StmPerformance {
 
       val run =
         for {
-          naive   <- NaiveTMap.empty[Int, Int]
-          sharded <- ShardedTMap.make[Int, Int]()
-          zioTMap <- TMap.empty[Int, Int].commit
+          naiveRef <- TRef.make(Map.empty[Int, Int]).commit
+          naive     = TMap(naiveRef)
+          sharded  <- ShardedTMap.make[Int, Int]()
+          zioTMap  <- zio.stm.TMap.empty[Int, Int].commit
           _ <- Console
                  .printLine(
                    s"Benchmark: $numFibers fibers x $writesPerFiber writes each"
