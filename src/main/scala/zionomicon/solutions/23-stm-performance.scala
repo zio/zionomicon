@@ -68,16 +68,21 @@ package StmPerformance {
     }
 
     /**
-     * Benchmark comparing naive vs. sharded TMap implementations.
+     * Benchmark comparing naive, sharded, and ZIO's built-in TMap implementations.
      *
      * Setup:
      *   - 100 concurrent fibers
      *   - Each fiber writes 1000 distinct keys (no overlap across fibers)
      *   - Total: 100,000 transactional writes
      *
+     * Implementations:
+     *   - NaiveTMap: Single TRef wrapping Map (demonstrates contention problem)
+     *   - ShardedTMap: 16 independent TRef shards (fine-grained locking solution)
+     *   - ZIO's TMap: Hash table with chaining (built-in library implementation)
+     *
      * Expected Result:
-     *   ShardedTMap should be significantly faster due to reduced contention.
-     *   The speedup factor approximates the number of shards (16x).
+     *   ShardedTMap and ZIO's TMap should significantly outperform NaiveTMap
+     *   due to reduced contention on independent buckets/shards.
      */
     object EfficientTMapBenchmark extends ZIOAppDefault {
       val numFibers      = 100
@@ -120,19 +125,25 @@ package StmPerformance {
         for {
           naive   <- NaiveTMap.empty[Int, Int]
           sharded <- ShardedTMap.make[Int, Int]()
+          zioTMap <- TMap.empty[Int, Int].commit
           _ <- Console
                  .printLine(
                    s"Benchmark: $numFibers fibers x $writesPerFiber writes each"
                  )
                  .orDie
-          _ <- benchmark("NaiveTMap   ") {
+          _ <- benchmark("NaiveTMap       ") {
                  runWrites((fi, wi) =>
                    naive.put(fi * writesPerFiber + wi, wi).commit
                  )
                }
-          _ <- benchmark("ShardedTMap ") {
+          _ <- benchmark("ShardedTMap     ") {
                  runWrites((fi, wi) =>
                    sharded.put(fi * writesPerFiber + wi, wi).commit
+                 )
+               }
+          _ <- benchmark("ZIO's TMap      ") {
+                 runWrites((fi, wi) =>
+                   zioTMap.put(fi * writesPerFiber + wi, wi).commit
                  )
                }
         } yield ()
