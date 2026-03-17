@@ -37,10 +37,10 @@ package StmPerformance {
     final case class NaiveTMap[K, V] private (
       private val map: TRef[Map[K, V]]
     ) {
-      def put(key: K, value: V): USTM[Unit] =
+      def put(key: K, value: V): STM[Nothing, Unit] =
         map.update(_ + (key -> value))
 
-      def get(key: K): USTM[Option[V]] =
+      def get(key: K): STM[Nothing, Option[V]] =
         map.get.map(_.get(key))
     }
 
