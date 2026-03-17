@@ -42,6 +42,11 @@ package StmPerformance {
         map.get.map(_.get(key))
     }
 
+    object TMap {
+      def empty[K, V]: UIO[TMap[K, V]] =
+        TRef.make(Map.empty[K, V]).commit.map(TMap(_))
+    }
+
     /**
      * Efficient concurrent map using sharding.
      *
@@ -139,10 +144,9 @@ package StmPerformance {
 
       val run =
         for {
-          naiveRef <- TRef.make(Map.empty[Int, Int]).commit
-          naive     = TMap(naiveRef)
-          sharded  <- ShardedTMap.make[Int, Int]()
-          zioTMap  <- zio.stm.TMap.empty[Int, Int].commit
+          naive   <- TMap.empty[Int, Int]
+          sharded <- ShardedTMap.make[Int, Int]()
+          zioTMap <- zio.stm.TMap.empty[Int, Int].commit
           _ <- Console
                  .printLine(
                    s"Benchmark: $numFibers fibers x $writesPerFiber writes each"
