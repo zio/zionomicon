@@ -20,7 +20,9 @@ libraryDependencies ++= Seq(
   "dev.zio"      %% "zio-interop-cats"    % "23.1.0.5",
   "org.tpolecat" %% "doobie-core"         % "1.0.0-RC9",
   "org.tpolecat" %% "doobie-hikari"       % "1.0.0-RC9",
-  "org.xerial"    % "sqlite-jdbc"         % "3.49.1.0"
+  "org.xerial"    % "sqlite-jdbc"         % "3.49.1.0",
+  "org.openjdk.jmh" % "jmh-core"          % "1.37",
+  "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.37"
 )
 
 scalacOptions ++= Seq(
@@ -31,4 +33,4 @@ publish / skip := true
 
 stdSettings(turnCompilerWarningIntoErrors = false, enableKindProjector = false)
 
-enablePlugins(ZioSbtCiPlugin, ZioSbtEcosystemPlugin)
+enablePlugins(ZioSbtCiPlugin, ZioSbtEcosystemPlugin, JmhPlugin)
