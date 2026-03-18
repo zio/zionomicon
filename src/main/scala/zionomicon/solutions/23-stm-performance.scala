@@ -104,70 +104,24 @@ package StmPerformance {
      * outperform NaiveTMap due to reduced contention on independent
      * buckets/shards.
      */
+    /**
+     * JMH Benchmark comparing implementations
+     *
+     * Run all benchmarks: sbt "Jmh / run"
+     *
+     * Run only StmPerformanceBenchmark: sbt "Jmh / run"
+     * ".*StmPerformanceBenchmark.*"
+     *
+     * Run a specific benchmark method: sbt "Jmh / run"
+     * ".*StmPerformanceBenchmark.shardedTMap16"
+     *
+     * This demonstrates how sharding dramatically reduces contention by
+     * distributing keys across independent TRef buckets.
+     */
     object EfficientTMapBenchmark extends ZIOAppDefault {
-      val numFibers      = 100
-      val writesPerFiber = 1000
-
-      /**
-       * Benchmark harness: times an operation and reports elapsed time +
-       * ops/sec
-       */
-      def benchmark(name: String)(run: UIO[Unit]): UIO[Unit] =
-        for {
-          start    <- Clock.nanoTime
-          _        <- run
-          end      <- Clock.nanoTime
-          elapsed   = (end - start) / 1_000_000L
-          total     = (numFibers * writesPerFiber).toLong
-          opsPerSec = total * 1_000L / math.max(elapsed, 1L)
-          _ <- Console
-                 .printLine(
-                   s"[$name] ${elapsed}ms | ${opsPerSec} ops/sec"
-                 )
-                 .orDie
-        } yield ()
-
-      /**
-       * Run concurrent fibers, each executing sequential writes.
-       *
-       * Layout:
-       *   - 100 fibers execute in parallel (ZIO.foreachParDiscard)
-       *   - Each fiber sequentially writes 1000 times (ZIO.foreachDiscard)
-       *   - Keys are distinct per fiber: fiberIdx * writesPerFiber + writeIdx
-       */
-      def runWrites(put: (Int, Int) => UIO[Unit]): UIO[Unit] =
-        ZIO.foreachParDiscard(0 until numFibers) { fiberIdx =>
-          ZIO.foreachDiscard(0 until writesPerFiber) { writeIdx =>
-            put(fiberIdx, writeIdx)
-          }
-        }
-
-      val run =
-        for {
-          naive   <- NaiveTMap.empty[Int, Int]
-          sharded <- ShardedTMap.make[Int, Int]()
-          zioTMap <- TMap.empty[Int, Int].commit
-          _ <- Console
-                 .printLine(
-                   s"Benchmark: $numFibers fibers x $writesPerFiber writes each"
-                 )
-                 .orDie
-          _ <- benchmark("NaiveTMap       ") {
-                 runWrites((fi, wi) =>
-                   naive.put(fi * writesPerFiber + wi, wi).commit
-                 )
-               }
-          _ <- benchmark("ShardedTMap     ") {
-                 runWrites((fi, wi) =>
-                   sharded.put(fi * writesPerFiber + wi, wi).commit
-                 )
-               }
-          _ <- benchmark("ZIO's TMap      ") {
-                 runWrites((fi, wi) =>
-                   zioTMap.put(fi * writesPerFiber + wi, wi).commit
-                 )
-               }
-        } yield ()
+      val run = Console.printLine(
+        "JMH Benchmarks available. Run with: sbt \"Jmh / run\" \".*StmPerformanceBenchmark.*\""
+      )
     }
   }
 
