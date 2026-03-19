@@ -11,17 +11,17 @@ inThisBuild {
 }
 
 libraryDependencies ++= Seq(
-  "dev.zio"      %% "zio"                 % "2.1.21",
-  "dev.zio"      %% "zio-config"          % "4.0.5",
-  "dev.zio"      %% "zio-config-magnolia" % "4.0.5",
-  "dev.zio"      %% "zio-config-typesafe" % "4.0.5",
-  "dev.zio"      %% "zio-http"            % "3.7.1",
-  "dev.zio"      %% "zio-test"            % "2.1.21",
-  "dev.zio"      %% "zio-interop-cats"    % "23.1.0.5",
-  "org.tpolecat" %% "doobie-core"         % "1.0.0-RC9",
-  "org.tpolecat" %% "doobie-hikari"       % "1.0.0-RC9",
-  "org.xerial"    % "sqlite-jdbc"         % "3.49.1.0",
-  "org.openjdk.jmh" % "jmh-core"          % "1.37",
+  "dev.zio"        %% "zio"                      % "2.1.21",
+  "dev.zio"        %% "zio-config"               % "4.0.5",
+  "dev.zio"        %% "zio-config-magnolia"      % "4.0.5",
+  "dev.zio"        %% "zio-config-typesafe"      % "4.0.5",
+  "dev.zio"        %% "zio-http"                 % "3.7.1",
+  "dev.zio"        %% "zio-test"                 % "2.1.21",
+  "dev.zio"        %% "zio-interop-cats"         % "23.1.0.5",
+  "org.tpolecat"   %% "doobie-core"              % "1.0.0-RC9",
+  "org.tpolecat"   %% "doobie-hikari"            % "1.0.0-RC9",
+  "org.xerial"      % "sqlite-jdbc"              % "3.49.1.0",
+  "org.openjdk.jmh" % "jmh-core"                 % "1.37",
   "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.37"
 )
 
