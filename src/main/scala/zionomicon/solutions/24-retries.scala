@@ -73,7 +73,53 @@ package Retries {
    *      recurrence and increases the jitter percentage by 5 percent as the
    *      number of retries increases.
    */
-  package ProgressiveJitteredSchedule {}
+  package ProgressiveJitteredSchedule {
+    import zio._
+
+    object ProgressiveJitteredScheduleExample extends ZIOAppDefault {
+
+      val baseDelay = 1.second
+
+      /**
+       * A schedule where jitter grows by 5% per retry.
+       *
+       * On retry N, the jitter percentage is N * 5%, so the actual delay is:
+       *   baseDelay + random(0, baseDelay * N * 0.05)
+       *
+       * Retry 1: up to 5% jitter  (1s + 0–50ms)
+       * Retry 2: up to 10% jitter (1s + 0–100ms)
+       * Retry 3: up to 15% jitter (1s + 0–150ms)
+       * ...
+       */
+      val attemptCounter: Schedule[Any, Any, Long] =
+        Schedule.unfold(1L)(_ + 1L)
+
+      val schedule: Schedule[Any, Any, Long] =
+        (Schedule.spaced(baseDelay) *> attemptCounter).mapZIO { attempt =>
+          val jitterFraction = attempt * 0.05
+          val maxJitterMs =
+            (baseDelay.toMillis * jitterFraction).toLong.max(1L)
+          Random.nextLongBounded(maxJitterMs).flatMap { jitter =>
+            val totalDelay = baseDelay + Duration.fromMillis(jitter)
+            ZIO.debug(
+              s"Retry #$attempt: jitter=${jitter}ms " +
+                f"(max ${jitterFraction * 100}%.0f%% = ${maxJitterMs}ms), " +
+                s"total delay=${totalDelay.toMillis}ms"
+            ) *> Clock.sleep(Duration.fromMillis(jitter)).as(attempt)
+          }
+        }
+
+      val unreliableEffect: ZIO[Any, String, Unit] =
+        Clock.currentDateTime.flatMap(now =>
+          ZIO.debug(s"[$now] Attempting API call...")
+        ) *> ZIO.fail("Temporary error")
+
+      val run: ZIO[Any, Any, Unit] =
+        unreliableEffect
+          .retry(schedule && Schedule.recurs(10))
+          .catchAll(e => Console.printLine(s"All retries exhausted: $e"))
+    }
+  }
 
   /**
    *   4. We want to call an API that has a rate limit of 100 requests per hour.
