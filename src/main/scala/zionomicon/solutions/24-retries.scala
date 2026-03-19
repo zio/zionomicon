@@ -7,7 +7,28 @@ package Retries {
    *      500 milliseconds. If those fail, switch to exponential backoff for 5
    *      more attempts, starting at 2 seconds and doubling each time.
    */
-  package QuickRetriesWithExponentialBackoff {}
+  package QuickRetriesWithExponentialBackoff {
+    import zio._
+
+    object QuickRetriesWithExponentialBackoffExample extends ZIOAppDefault {
+
+      val quickRetries =
+        Schedule.recurs(3) && Schedule.spaced(500.millis)
+
+      val exponentialBackoff =
+        Schedule.exponential(2.seconds) && Schedule.recurs(5)
+
+      val schedule = quickRetries andThen exponentialBackoff
+
+      val unreliableEffect: ZIO[Any, String, Unit] =
+        ZIO.fail("Connection refused")
+
+      val run: ZIO[Any, Any, Unit] =
+        unreliableEffect
+          .retry(schedule)
+          .catchAll(e => Console.printLine(s"All retries exhausted: $e"))
+    }
+  }
 
   /**
    *   2. Create a schedule that only retries during "business hours" (9 AM to 5
