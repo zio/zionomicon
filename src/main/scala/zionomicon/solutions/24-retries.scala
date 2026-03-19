@@ -34,7 +34,39 @@ package Retries {
    *   2. Create a schedule that only retries during "business hours" (9 AM to 5
    *      PM) on weekdays, with a one-hour delay between attempts.
    */
-  package BusinessHoursSchedule {}
+  package BusinessHoursSchedule {
+    import zio._
+
+    import java.time.DayOfWeek
+    import java.time.OffsetDateTime
+
+    object BusinessHoursScheduleExample extends ZIOAppDefault {
+
+      def isBusinessHours(now: OffsetDateTime): Boolean = {
+        val day  = now.getDayOfWeek
+        val hour = now.getHour
+        val isWeekday =
+          day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY
+        isWeekday && hour >= 9 && hour < 17
+      }
+
+      val businessHoursOnly: Schedule[Any, Any, Unit] =
+        Schedule.recurWhileZIO[Any, Any](_ =>
+          Clock.currentDateTime.map(isBusinessHours)
+        ).unit
+
+      val schedule =
+        Schedule.spaced(1.hour) && businessHoursOnly
+
+      val unreliableEffect: ZIO[Any, String, Unit] =
+        ZIO.fail("Service unavailable")
+
+      val run: ZIO[Any, Any, Unit] =
+        unreliableEffect
+          .retry(schedule)
+          .catchAll(e => Console.printLine(s"All retries exhausted: $e"))
+    }
+  }
 
   /**
    *   3. Create a progressive jittered schedule that delays between each
