@@ -126,7 +126,36 @@ package Retries {
    *      Create a schedule that respects this rate limit, only recursing 100
    *      times, and resets its retry count at the start of each hour.
    */
-  package RateLimitSchedule {}
+  package RateLimitSchedule {
+    import zio._
+
+    object RateLimitScheduleExample extends ZIOAppDefault {
+
+      /**
+       * A schedule that allows up to 100 recurrences per hour.
+       *
+       * - Schedule.recurs(100): limits to 100 retries
+       * - .resetAfter(1.hour): resets the retry counter every hour,
+       *   so a new window of 100 retries begins each hour
+       *
+       * The spacing of 36.seconds (3600s / 100) evenly distributes
+       * requests across the hour to avoid bursting.
+       */
+      val schedule =
+        (Schedule.recurs(100) && Schedule.spaced(36.seconds))
+          .resetAfter(1.hour)
+
+      val unreliableEffect: ZIO[Any, String, Unit] =
+        Clock.currentDateTime.flatMap(now =>
+          ZIO.debug(s"[$now] Making API call...")
+        ) *> ZIO.fail("API error")
+
+      val run: ZIO[Any, Any, Unit] =
+        unreliableEffect
+          .retry(schedule)
+          .catchAll(e => Console.printLine(s"All retries exhausted: $e"))
+    }
+  }
 
   /**
    *   5. We have an API that, when we flood it with requests, starts to return
