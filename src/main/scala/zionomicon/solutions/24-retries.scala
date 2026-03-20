@@ -250,7 +250,104 @@ package Retries {
    *   - Poll every 1 second when the temperature is unstable (change >= 3°C)
    *   - Return to stable polling once the temperature stabilizes again
    */
-  package IoTTemperaturePolling {}
+  package IoTTemperaturePolling {
+    import zio._
+
+    object IoTTemperaturePollingExample extends ZIOAppDefault {
+
+      val stableInterval   = 5.minutes
+      val unstableInterval = 1.second
+      val threshold        = 3.0
+
+      /**
+       * State carried between polls: the last temperature reading and
+       * the delay to use before the next poll. We bundle both into a
+       * case class because `addDelay` only sees the schedule's output,
+       * not the internal fold computation — so the chosen interval must
+       * be part of the output.
+       */
+      case class PollState(lastTemp: Option[Double], nextDelay: Duration)
+
+      /**
+       * Returns a schedule that adapts polling frequency based on
+       * temperature stability.
+       *
+       * Key combinators:
+       *
+       *   - `Schedule.identity[Double]` passes each effect output
+       *     (temperature reading) as the schedule's input, making it
+       *     available to downstream combinators.
+       *
+       *   - `.foldZIO(init)(f)` accumulates state across recurrences.
+       *     Here it tracks the last temperature to compute the delta.
+       *     On each recurrence it classifies the reading as stable or
+       *     unstable and stores the appropriate delay in `PollState`.
+       *
+       *   - `.addDelay(_.nextDelay)` reads the delay from the fold
+       *     state, making the interval truly adaptive: each poll's
+       *     delay is determined by the previous reading's stability.
+       */
+      def adaptivePollingSchedule(
+        stableInterval: Duration,
+        unstableInterval: Duration,
+        threshold: Double
+      ): Schedule[Any, Double, PollState] =
+        Schedule.identity[Double]
+          .foldZIO(PollState(None, Duration.Zero)) { (state, newTemp) =>
+            val delta = state.lastTemp.fold(0.0)(prev =>
+              Math.abs(newTemp - prev)
+            )
+            val isStable = delta < threshold
+            val interval =
+              if (isStable) stableInterval else unstableInterval
+            ZIO.debug(
+              f"  Temperature: $newTemp%.1f°C | " +
+                f"Δ=$delta%.1f°C | " +
+                s"${if (isStable) "STABLE" else "UNSTABLE"} → " +
+                s"next poll in ${interval.render}"
+            ).as(PollState(Some(newTemp), interval))
+          }
+          .addDelay(_.nextDelay)
+
+      val schedule =
+        adaptivePollingSchedule(stableInterval, unstableInterval, threshold)
+
+      /**
+       * Simulated temperature readings: stable at first, then a sudden
+       * spike, then stabilizing again.
+       */
+      val readings = List(
+        20.0, 20.5, 20.3, // stable
+        24.0, 27.0,        // unstable (large jumps)
+        27.2, 27.1, 27.0   // stable again
+      )
+
+      /**
+       * For the demo we use shorter intervals so the output appears
+       * quickly. In production, use the real stableInterval /
+       * unstableInterval values.
+       */
+      val demoSchedule =
+        adaptivePollingSchedule(
+          stableInterval = 2.seconds,
+          unstableInterval = 500.millis,
+          threshold = threshold
+        )
+
+      val run: ZIO[Any, Any, Unit] =
+        for {
+          _   <- ZIO.debug("=== IoT Temperature Polling ===")
+          ref <- Ref.make(readings)
+          sensorReading = ref.modify {
+                            case head :: tail => (head, tail)
+                            case Nil          => (0.0, Nil)
+                          }
+          _ <- sensorReading.repeat(
+                 demoSchedule && Schedule.recurs(readings.length - 1)
+               )
+        } yield ()
+    }
+  }
 
   /**
    *   7. Write a cron-like schedule that takes a set of seconds of the minute,
