@@ -174,7 +174,72 @@ package Retries {
    * `retryAfter` duration so it doesn't perform any requests until the
    * `retryAfter` duration has elapsed.
    */
-  package RetryAfterSchedule {}
+  package RetryAfterSchedule {
+    import zio._
+
+    /**
+     * Error returned by a rate-limited API.
+     *
+     * @param retryAfter
+     *   how long the client must wait before making another request. The
+     *   server sets this based on when the rate-limit window resets.
+     * @param remainingQuota
+     *   how many requests the client has left in the current rate-limit
+     *   window. When this reaches 0, subsequent requests will be rejected
+     *   until the window resets.
+     */
+    case class RateLimitExceeded(
+      retryAfter: Duration,
+      remainingQuota: Int
+    )
+
+    object RetryAfterScheduleExample extends ZIOAppDefault {
+
+      /**
+       * A schedule that reads the retryAfter duration from the error and
+       * uses it as the delay before the next attempt.
+       *
+       * - Schedule.identity extracts the error as the schedule's output
+       * - addDelay uses the extracted error to compute a dynamic delay
+       * - forever keeps retrying indefinitely (or until success)
+       */
+      val schedule: Schedule[Any, RateLimitExceeded, RateLimitExceeded] =
+        Schedule.identity[RateLimitExceeded].addDelayZIO { error =>
+          ZIO.debug(
+            s"Rate limited: waiting ${error.retryAfter.toMillis}ms " +
+              s"(remaining quota: ${error.remainingQuota})"
+          ).as(error.retryAfter)
+        }
+
+      /**
+       * Simulates an API with a quota of 100 requests. Each rejected call
+       * consumes quota and the server asks us to wait longer as quota
+       * depletes, then succeeds once the window resets on the 5th attempt.
+       */
+      val apiCall: ZIO[Ref[Int], RateLimitExceeded, Unit] =
+        for {
+          counter <- ZIO.service[Ref[Int]]
+          count   <- counter.updateAndGet(_ + 1)
+          now     <- Clock.currentDateTime
+          _       <- ZIO.debug(s"[$now] API call attempt #$count")
+          _ <-
+            if (count <= 4)
+              ZIO.fail(
+                RateLimitExceeded(
+                  retryAfter = Duration.fromMillis(count * 500L),
+                  remainingQuota = 100 - (count * 25)
+                )
+              )
+            else
+              ZIO.debug(s"[$now] API call succeeded on attempt #$count!")
+        } yield ()
+
+      val run: ZIO[Any, Any, Unit] =
+        apiCall
+          .retry(schedule)
+          .provideLayer(ZLayer(Ref.make(0)))
+    }
+  }
 
   /**
    *   6. Create a schedule for IoT devices that adjusts its polling frequency
