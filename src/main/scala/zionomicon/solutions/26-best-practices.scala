@@ -161,6 +161,63 @@ package BestPractices {
           .as(RegistrationForm(username, password, email, age))
       }
     }
+
+    // --- Example Showcase ---
+
+    object Exercise3Example extends ZIOAppDefault {
+
+      def formatError(error: RegistrationError): String =
+        error match {
+          case UsernameTooShort(len) =>
+            s"Username too short ($len chars, need at least 5)"
+          case PasswordTooShort(len) =>
+            s"Password too short ($len chars, need at least 8)"
+          case InvalidEmail(email) =>
+            s"Invalid email: '$email' (must contain '@' and a domain)"
+          case AgeTooYoung(age) =>
+            s"Must be 18 or older (got $age)"
+        }
+
+      def run: ZIO[Any, Any, Unit] = for {
+        _ <- Console.printLine("=== Exercise 3: ZIO.validate ===")
+        // Case 1: All fields invalid — all errors collected
+        _ <- Console.printLine("\n--- Invalid input (all fields wrong) ---")
+        _ <- RegistrationService
+          .register("ab", "short", "bad-email", 15)
+          .foldZIO(
+            errors =>
+              ZIO.foreach(errors.toList)(e =>
+                Console.printLine(s"  Error: ${formatError(e)}")
+              ),
+            form =>
+              Console.printLine(s"  Registered: $form")
+          )
+        // Case 2: Valid input — success
+        _ <- Console.printLine("\n--- Valid input ---")
+        _ <- RegistrationService
+          .register("alice", "securepass", "alice@example.com", 25)
+          .foldZIO(
+            errors =>
+              ZIO.foreach(errors.toList)(e =>
+                Console.printLine(s"  Error: ${formatError(e)}")
+              ),
+            form =>
+              Console.printLine(s"  Registered: $form")
+          )
+        // Case 3: Partial errors — only some fields invalid
+        _ <- Console.printLine("\n--- Partial errors (username + age) ---")
+        _ <- RegistrationService
+          .register("ab", "securepass", "bob@test.com", 16)
+          .foldZIO(
+            errors =>
+              ZIO.foreach(errors.toList)(e =>
+                Console.printLine(s"  Error: ${formatError(e)}")
+              ),
+            form =>
+              Console.printLine(s"  Registered: $form")
+          )
+      } yield ()
+    }
   }
 
   /**
@@ -248,6 +305,58 @@ package BestPractices {
           validateEmail(email),
           validateAge(age)
         )(RegistrationForm)
+    }
+
+    // --- Example Showcase ---
+
+    object Exercise4Example extends zio.ZIOAppDefault {
+      import zio._
+
+      def formatError(error: RegistrationError): String =
+        error match {
+          case UsernameTooShort(len) =>
+            s"Username too short ($len chars, need at least 5)"
+          case PasswordTooShort(len) =>
+            s"Password too short ($len chars, need at least 8)"
+          case InvalidEmail(email) =>
+            s"Invalid email: '$email' (must contain '@' and a domain)"
+          case AgeTooYoung(age) =>
+            s"Must be 18 or older (got $age)"
+        }
+
+      def showResult(
+        label: String,
+        result: Validation[RegistrationError, RegistrationForm]
+      ): ZIO[Any, Any, Unit] =
+        result match {
+          case Validation.Success(_, form) =>
+            Console.printLine(s"$label\n  Registered: $form")
+          case Validation.Failure(_, errors) =>
+            Console.printLine(label) *>
+              ZIO.foreach(errors.toList)(e =>
+                Console.printLine(s"  Error: ${formatError(e)}")
+              ) *> ZIO.unit
+        }
+
+      def run: ZIO[Any, Any, Unit] = for {
+        _ <- Console.printLine("=== Exercise 4: ZIO Prelude Validation ===")
+        // Case 1: All fields invalid
+        _ <- showResult(
+          "\n--- Invalid input (all fields wrong) ---",
+          RegistrationService.register("ab", "short", "bad-email", 15)
+        )
+        // Case 2: Valid input
+        _ <- showResult(
+          "\n--- Valid input ---",
+          RegistrationService
+            .register("alice", "securepass", "alice@example.com", 25)
+        )
+        // Case 3: Partial errors
+        _ <- showResult(
+          "\n--- Partial errors (username + age) ---",
+          RegistrationService.register("ab", "securepass", "bob@test.com", 16)
+        )
+      } yield ()
     }
   }
 
