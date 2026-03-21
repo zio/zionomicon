@@ -187,7 +187,6 @@ package BestPractices {
    */
   package PreludeValidation {
 
-    import zio._
     import zio.prelude._
 
     sealed trait RegistrationError           extends Product with Serializable
