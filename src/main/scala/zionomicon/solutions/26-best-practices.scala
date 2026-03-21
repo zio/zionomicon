@@ -172,7 +172,95 @@ package BestPractices {
    *   4. Utilize ZIO Prelude's `Validation` data type to accumulate errors
    *      from the previous exercise. Compare this approach with the previous
    *      method and discuss the pros and cons of each.
+   *
+   * Comparison:
+   *
+   * ZIO#validate (Exercise 3):
+   *   + Works directly with ZIO effects, so validation can be effectful
+   *     (e.g., check uniqueness against a database).
+   *   + Familiar API if you already use ZIO operators.
+   *   - Requires `.unit` to unify heterogeneous success types in a
+   *     collection, losing typed results.
+   *   - Error type is `::[E]` (non-empty list), less ergonomic to
+   *     pattern match on.
+   *
+   * ZIO Prelude Validation (Exercise 4):
+   *   + Pure data type — no effects needed for pure validation logic.
+   *   + Preserves typed success values via `zipWith` / `<*>`.
+   *   + `NonEmptyChunk[E]` error accumulation is explicit and clean.
+   *   - Cannot perform effectful validations (e.g., DB lookups)
+   *     without converting to ZIO first.
+   *   - Adds ZIO Prelude as a dependency.
    */
-  package PreludeValidation {}
+  package PreludeValidation {
+
+    import zio._
+    import zio.prelude._
+
+    sealed trait RegistrationError extends Product with Serializable
+    case class UsernameTooShort(length: Int)
+        extends RegistrationError
+    case class PasswordTooShort(length: Int)
+        extends RegistrationError
+    case class InvalidEmail(email: String)
+        extends RegistrationError
+    case class AgeTooYoung(age: Int)
+        extends RegistrationError
+
+    case class RegistrationForm(
+        username: String,
+        password: String,
+        email: String,
+        age: Int
+    )
+
+    object RegistrationService {
+
+      def validateUsername(
+          username: String
+      ): Validation[RegistrationError, String] =
+        if (username.length >= 5)
+          Validation.succeed(username)
+        else
+          Validation.fail(UsernameTooShort(username.length))
+
+      def validatePassword(
+          password: String
+      ): Validation[RegistrationError, String] =
+        if (password.length >= 8)
+          Validation.succeed(password)
+        else
+          Validation.fail(PasswordTooShort(password.length))
+
+      def validateEmail(
+          email: String
+      ): Validation[RegistrationError, String] = {
+        val parts = email.split("@")
+        if (parts.length == 2 && parts(1).contains("."))
+          Validation.succeed(email)
+        else
+          Validation.fail(InvalidEmail(email))
+      }
+
+      def validateAge(
+          age: Int
+      ): Validation[RegistrationError, Int] =
+        if (age >= 18) Validation.succeed(age)
+        else Validation.fail(AgeTooYoung(age))
+
+      def register(
+          username: String,
+          password: String,
+          email: String,
+          age: Int
+      ): Validation[RegistrationError, RegistrationForm] =
+        Validation.validateWith(
+          validateUsername(username),
+          validatePassword(password),
+          validateEmail(email),
+          validateAge(age)
+        )(RegistrationForm)
+    }
+  }
 
 }
