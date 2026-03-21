@@ -100,7 +100,73 @@ package BestPractices {
    * **Hint:** Consider using the `ZIO#validate` operator to validate input
    * and collect all errors.
    */
-  package RegistrationValidation {}
+  package RegistrationValidation {
+
+    import zio._
+
+    sealed trait RegistrationError extends Product with Serializable
+    case class UsernameTooShort(length: Int)
+        extends RegistrationError
+    case class PasswordTooShort(length: Int)
+        extends RegistrationError
+    case class InvalidEmail(email: String)
+        extends RegistrationError
+    case class AgeTooYoung(age: Int)
+        extends RegistrationError
+
+    case class RegistrationForm(
+        username: String,
+        password: String,
+        email: String,
+        age: Int
+    )
+
+    object RegistrationService {
+
+      def validateUsername(
+          username: String
+      ): IO[UsernameTooShort, String] =
+        if (username.length >= 5) ZIO.succeed(username)
+        else ZIO.fail(UsernameTooShort(username.length))
+
+      def validatePassword(
+          password: String
+      ): IO[PasswordTooShort, String] =
+        if (password.length >= 8) ZIO.succeed(password)
+        else ZIO.fail(PasswordTooShort(password.length))
+
+      def validateEmail(
+          email: String
+      ): IO[InvalidEmail, String] = {
+        val parts = email.split("@")
+        if (parts.length == 2 && parts(1).contains("."))
+          ZIO.succeed(email)
+        else ZIO.fail(InvalidEmail(email))
+      }
+
+      def validateAge(age: Int): IO[AgeTooYoung, Int] =
+        if (age >= 18) ZIO.succeed(age)
+        else ZIO.fail(AgeTooYoung(age))
+
+      def register(
+          username: String,
+          password: String,
+          email: String,
+          age: Int
+      ): IO[::[RegistrationError], RegistrationForm] = {
+        val validations: List[IO[RegistrationError, Unit]] =
+          List(
+            validateUsername(username).unit,
+            validatePassword(password).unit,
+            validateEmail(email).unit,
+            validateAge(age).unit
+          )
+        ZIO
+          .validate(validations)(identity)
+          .as(RegistrationForm(username, password, email, age))
+      }
+    }
+  }
 
   /**
    *   4. Utilize ZIO Prelude's `Validation` data type to accumulate errors
