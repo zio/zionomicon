@@ -46,10 +46,42 @@ package BestPractices {
         )
   }
 
-  /**
-   *   2. In Scala 3, how would you model `UserServiceError` using enums
-   *      instead of a sealed trait?
-   */
+/**
+ *   2. In Scala 3, how would you model `UserServiceError` using enums
+ *      instead of a sealed trait?
+ *
+ * Answer:
+ *
+ * In Scala 3, enums provide a concise way to define ADTs. They combine
+ * the sealed trait + case class pattern into a single construct.
+ *
+ * Note: This code is Scala 3 only and will not compile under Scala 2.13.
+ * It is provided here as a comment for reference.
+ *
+ * {{{
+ * enum UserServiceError(val message: String) extends Exception(message):
+ *   case UserAlreadyExists(username: String)
+ *     extends UserServiceError(s"User '$username' already exists")
+ *   case InvalidUsernameFormat(username: String)
+ *     extends UserServiceError(s"Invalid username format: '$username'")
+ *   case RegistrationQuotaExceeded(limit: Int)
+ *     extends UserServiceError(s"Registration quota exceeded: limit is $limit")
+ * }}}
+ *
+ * Benefits of enums over sealed traits:
+ *
+ *   a) Less boilerplate — no need for separate case class declarations
+ *      or `extends Product with Serializable`.
+ *
+ *   b) Built-in `values` and `valueOf` methods for simple enums (where all
+ *      cases are non-parameterized singletons), useful for serialization.
+ *      Note: These methods are not available for enums with parameterized cases.
+ *
+ *   c) Exhaustivity checking works the same as sealed traits.
+ *
+ *   d) Enums can have constructor parameters and extend classes (like
+ *      Exception), just like sealed abstract classes in Scala 2.
+ */
   package Scala3EnumErrors {}
 
   /**
