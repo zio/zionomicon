@@ -3,29 +3,28 @@ package zionomicon.solutions
 package BestPractices {
 
   /**
-   *   1. When should you use an _abstract class_ instead of a _sealed trait_
-   *      to model domain errors? Provide an example using `UserServiceError`.
+   *   1. When should you use an _abstract class_ instead of a _sealed trait_ to
+   *      model domain errors? Provide an example using `UserServiceError`.
    *
    * Answer:
    *
    * Use a sealed abstract class instead of a sealed trait when:
    *
-   *   a) You need Java interoperability — abstract classes can be caught
-   *      directly in Java catch blocks, whereas traits compiled to interfaces
-   *      cannot be caught without matching on the interface type.
+   * a) You need Java interoperability — abstract classes can be caught directly
+   * in Java catch blocks, whereas traits compiled to interfaces cannot be
+   * caught without matching on the interface type.
    *
-   *   b) You need constructor parameters shared across all subtypes — an
-   *      abstract class lets you define common fields once in the constructor,
-   *      avoiding repetition in every case class.
+   * b) You need constructor parameters shared across all subtypes — an abstract
+   * class lets you define common fields once in the constructor, avoiding
+   * repetition in every case class.
    *
-   *   c) You want to extend Throwable/Exception — extending Exception
-   *      (which is a class) from a trait requires careful linearization;
-   *      using a sealed abstract class that extends Exception is more
-   *      straightforward and idiomatic.
+   * c) You want to extend Throwable/Exception — extending Exception (which is a
+   * class) from a trait requires careful linearization; using a sealed abstract
+   * class that extends Exception is more straightforward and idiomatic.
    *
-   * Example below: UserServiceError extends Exception so that it can be
-   * used in contexts that expect Throwable (e.g. legacy Java APIs),
-   * and carries a shared `message` constructor parameter.
+   * Example below: UserServiceError extends Exception so that it can be used in
+   * contexts that expect Throwable (e.g. legacy Java APIs), and carries a
+   * shared `message` constructor parameter.
    */
   package AbstractClassVsSealedTrait {
 
@@ -46,42 +45,42 @@ package BestPractices {
         )
   }
 
-/**
- *   2. In Scala 3, how would you model `UserServiceError` using enums
- *      instead of a sealed trait?
- *
- * Answer:
- *
- * In Scala 3, enums provide a concise way to define ADTs. They combine
- * the sealed trait + case class pattern into a single construct.
- *
- * Note: This code is Scala 3 only and will not compile under Scala 2.13.
- * It is provided here as a comment for reference.
- *
- * {{{
- * enum UserServiceError(val message: String) extends Exception(message):
- *   case UserAlreadyExists(username: String)
- *     extends UserServiceError(s"User '$username' already exists")
- *   case InvalidUsernameFormat(username: String)
- *     extends UserServiceError(s"Invalid username format: '$username'")
- *   case RegistrationQuotaExceeded(limit: Int)
- *     extends UserServiceError(s"Registration quota exceeded: limit is $limit")
- * }}}
- *
- * Benefits of enums over sealed traits:
- *
- *   a) Less boilerplate — no need for separate case class declarations
- *      or `extends Product with Serializable`.
- *
- *   b) Built-in `values` and `valueOf` methods for simple enums (where all
- *      cases are non-parameterized singletons), useful for serialization.
- *      Note: These methods are not available for enums with parameterized cases.
- *
- *   c) Exhaustivity checking works the same as sealed traits.
- *
- *   d) Enums can have constructor parameters and extend classes (like
- *      Exception), just like sealed abstract classes in Scala 2.
- */
+  /**
+   *   2. In Scala 3, how would you model `UserServiceError` using enums instead
+   *      of a sealed trait?
+   *
+   * Answer:
+   *
+   * In Scala 3, enums provide a concise way to define ADTs. They combine the
+   * sealed trait + case class pattern into a single construct.
+   *
+   * Note: This code is Scala 3 only and will not compile under Scala 2.13. It
+   * is provided here as a comment for reference.
+   *
+   * {{{
+   * enum UserServiceError(val message: String) extends Exception(message):
+   *   case UserAlreadyExists(username: String)
+   *     extends UserServiceError(s"User '$username' already exists")
+   *   case InvalidUsernameFormat(username: String)
+   *     extends UserServiceError(s"Invalid username format: '$username'")
+   *   case RegistrationQuotaExceeded(limit: Int)
+   *     extends UserServiceError(s"Registration quota exceeded: limit is $limit")
+   * }}}
+   *
+   * Benefits of enums over sealed traits:
+   *
+   * a) Less boilerplate — no need for separate case class declarations or
+   * `extends Product with Serializable`.
+   *
+   * b) Built-in `values` and `valueOf` methods for simple enums (where all
+   * cases are non-parameterized singletons), useful for serialization. Note:
+   * These methods are not available for enums with parameterized cases.
+   *
+   * c) Exhaustivity checking works the same as sealed traits.
+   *
+   * d) Enums can have constructor parameters and extend classes (like
+   * Exception), just like sealed abstract classes in Scala 2.
+   */
   package Scala3EnumErrors {}
 
   /**
@@ -93,50 +92,46 @@ package BestPractices {
    *   - Email must contain an "@" and a domain name.
    *   - Age must be 18 or older.
    *
-   * How would you model and handle errors in the `register` method? The goal
-   * is to collect all errors and provide comprehensive feedback to the user
+   * How would you model and handle errors in the `register` method? The goal is
+   * to collect all errors and provide comprehensive feedback to the user
    * without failing fast.
    *
-   * **Hint:** Consider using the `ZIO#validate` operator to validate input
-   * and collect all errors.
+   * **Hint:** Consider using the `ZIO#validate` operator to validate input and
+   * collect all errors.
    */
   package RegistrationValidation {
 
     import zio._
 
-    sealed trait RegistrationError extends Product with Serializable
-    case class UsernameTooShort(length: Int)
-        extends RegistrationError
-    case class PasswordTooShort(length: Int)
-        extends RegistrationError
-    case class InvalidEmail(email: String)
-        extends RegistrationError
-    case class AgeTooYoung(age: Int)
-        extends RegistrationError
+    sealed trait RegistrationError           extends Product with Serializable
+    case class UsernameTooShort(length: Int) extends RegistrationError
+    case class PasswordTooShort(length: Int) extends RegistrationError
+    case class InvalidEmail(email: String)   extends RegistrationError
+    case class AgeTooYoung(age: Int)         extends RegistrationError
 
     case class RegistrationForm(
-        username: String,
-        password: String,
-        email: String,
-        age: Int
+      username: String,
+      password: String,
+      email: String,
+      age: Int
     )
 
     object RegistrationService {
 
       def validateUsername(
-          username: String
+        username: String
       ): IO[UsernameTooShort, String] =
         if (username.length >= 5) ZIO.succeed(username)
         else ZIO.fail(UsernameTooShort(username.length))
 
       def validatePassword(
-          password: String
+        password: String
       ): IO[PasswordTooShort, String] =
         if (password.length >= 8) ZIO.succeed(password)
         else ZIO.fail(PasswordTooShort(password.length))
 
       def validateEmail(
-          email: String
+        email: String
       ): IO[InvalidEmail, String] = {
         val parts = email.split("@")
         if (parts.length == 2 && parts(1).contains("."))
@@ -149,10 +144,10 @@ package BestPractices {
         else ZIO.fail(AgeTooYoung(age))
 
       def register(
-          username: String,
-          password: String,
-          email: String,
-          age: Int
+        username: String,
+        password: String,
+        email: String,
+        age: Int
       ): IO[::[RegistrationError], RegistrationForm] = {
         val validations: List[IO[RegistrationError, Unit]] =
           List(
@@ -169,27 +164,25 @@ package BestPractices {
   }
 
   /**
-   *   4. Utilize ZIO Prelude's `Validation` data type to accumulate errors
-   *      from the previous exercise. Compare this approach with the previous
-   *      method and discuss the pros and cons of each.
+   *   4. Utilize ZIO Prelude's `Validation` data type to accumulate errors from
+   *      the previous exercise. Compare this approach with the previous method
+   *      and discuss the pros and cons of each.
    *
    * Comparison:
    *
-   * ZIO#validate (Exercise 3):
-   *   + Works directly with ZIO effects, so validation can be effectful
-   *     (e.g., check uniqueness against a database).
-   *   + Familiar API if you already use ZIO operators.
-   *   - Requires `.unit` to unify heterogeneous success types in a
-   *     collection, losing typed results.
-   *   - Error type is `::[E]` (non-empty list), less ergonomic to
-   *     pattern match on.
+   * ZIO#validate (Exercise 3): + Works directly with ZIO effects, so validation
+   * can be effectful (e.g., check uniqueness against a database). + Familiar
+   * API if you already use ZIO operators.
+   *   - Requires `.unit` to unify heterogeneous success types in a collection,
+   *     losing typed results.
+   *   - Error type is `::[E]` (non-empty list), less ergonomic to pattern match
+   *     on.
    *
-   * ZIO Prelude Validation (Exercise 4):
-   *   + Pure data type — no effects needed for pure validation logic.
-   *   + Preserves typed success values via `zipWith` / `<*>`.
-   *   + `NonEmptyChunk[E]` error accumulation is explicit and clean.
-   *   - Cannot perform effectful validations (e.g., DB lookups)
-   *     without converting to ZIO first.
+   * ZIO Prelude Validation (Exercise 4): + Pure data type — no effects needed
+   * for pure validation logic. + Preserves typed success values via `zipWith` /
+   * `<*>`. + `NonEmptyChunk[E]` error accumulation is explicit and clean.
+   *   - Cannot perform effectful validations (e.g., DB lookups) without
+   *     converting to ZIO first.
    *   - Adds ZIO Prelude as a dependency.
    */
   package PreludeValidation {
@@ -197,27 +190,23 @@ package BestPractices {
     import zio._
     import zio.prelude._
 
-    sealed trait RegistrationError extends Product with Serializable
-    case class UsernameTooShort(length: Int)
-        extends RegistrationError
-    case class PasswordTooShort(length: Int)
-        extends RegistrationError
-    case class InvalidEmail(email: String)
-        extends RegistrationError
-    case class AgeTooYoung(age: Int)
-        extends RegistrationError
+    sealed trait RegistrationError           extends Product with Serializable
+    case class UsernameTooShort(length: Int) extends RegistrationError
+    case class PasswordTooShort(length: Int) extends RegistrationError
+    case class InvalidEmail(email: String)   extends RegistrationError
+    case class AgeTooYoung(age: Int)         extends RegistrationError
 
     case class RegistrationForm(
-        username: String,
-        password: String,
-        email: String,
-        age: Int
+      username: String,
+      password: String,
+      email: String,
+      age: Int
     )
 
     object RegistrationService {
 
       def validateUsername(
-          username: String
+        username: String
       ): Validation[RegistrationError, String] =
         if (username.length >= 5)
           Validation.succeed(username)
@@ -225,7 +214,7 @@ package BestPractices {
           Validation.fail(UsernameTooShort(username.length))
 
       def validatePassword(
-          password: String
+        password: String
       ): Validation[RegistrationError, String] =
         if (password.length >= 8)
           Validation.succeed(password)
@@ -233,7 +222,7 @@ package BestPractices {
           Validation.fail(PasswordTooShort(password.length))
 
       def validateEmail(
-          email: String
+        email: String
       ): Validation[RegistrationError, String] = {
         val parts = email.split("@")
         if (parts.length == 2 && parts(1).contains("."))
@@ -243,16 +232,16 @@ package BestPractices {
       }
 
       def validateAge(
-          age: Int
+        age: Int
       ): Validation[RegistrationError, Int] =
         if (age >= 18) Validation.succeed(age)
         else Validation.fail(AgeTooYoung(age))
 
       def register(
-          username: String,
-          password: String,
-          email: String,
-          age: Int
+        username: String,
+        password: String,
+        email: String,
+        age: Int
       ): Validation[RegistrationError, RegistrationForm] =
         Validation.validateWith(
           validateUsername(username),
