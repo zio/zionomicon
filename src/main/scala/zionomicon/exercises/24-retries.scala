@@ -42,9 +42,9 @@ package Retries {
    * def apiCall: IO[RateLimitExceeded, Unit] = ???
    * }}}
    *
-   * Write a schedule that retries the API call with respect to the
-   * `retryAfter` duration so it doesn't perform any requests until the
-   * `retryAfter` duration has elapsed.
+   * Write a schedule that retries the API call with respect to the `retryAfter`
+   * duration so it doesn't perform any requests until the `retryAfter` duration
+   * has elapsed.
    */
   package RetryAfterSchedule {}
 

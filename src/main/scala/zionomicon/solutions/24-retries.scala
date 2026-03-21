@@ -371,21 +371,20 @@ package Retries {
     object CronScheduleExample extends ZIOAppDefault {
 
       /**
-       * Finds the next `OffsetDateTime` at or after `from` that matches
-       * all four cron fields. Uses a coarse-to-fine skip strategy:
-       * when a field doesn't match, it jumps to the next valid unit
-       * at that granularity (day → hour → minute → second), resetting
-       * all finer fields to their smallest allowed value.
+       * Finds the next `OffsetDateTime` at or after `from` that matches all
+       * four cron fields. Uses a coarse-to-fine skip strategy: when a field
+       * doesn't match, it jumps to the next valid unit at that granularity (day
+       * → hour → minute → second), resetting all finer fields to their smallest
+       * allowed value.
        *
-       * Example: if hoursOfDay = Set(9, 17) and current hour is 12,
-       * we skip directly to 17:00:00 instead of scanning 5 hours of
-       * seconds.
+       * Example: if hoursOfDay = Set(9, 17) and current hour is 12, we skip
+       * directly to 17:00:00 instead of scanning 5 hours of seconds.
        *
-       * The function is tail-recursive (@tailrec): each branch either
-       * returns a match or advances the candidate and recurses. The
-       * coarse-to-fine skipping ensures convergence — at most 7
-       * day-skips (one week cycle), 24 hour-skips, 60 minute-skips,
-       * and 60 second-skips before finding a match.
+       * The function is tail-recursive (@tailrec): each branch either returns a
+       * match or advances the candidate and recurses. The coarse-to-fine
+       * skipping ensures convergence — at most 7 day-skips (one week cycle), 24
+       * hour-skips, 60 minute-skips, and 60 second-skips before finding a
+       * match.
        */
       @scala.annotation.tailrec
       def nextCronTime(
@@ -453,16 +452,15 @@ package Retries {
       /**
        * Builds the cron schedule.
        *
-       * `Schedule.forever` provides infinite recurrences with zero
-       * delay. `addDelayZIO` overrides that delay: after each
-       * recurrence, it asks "what time is it now?", computes the
-       * next matching cron instant, and returns the Duration between
-       * now and that instant. The schedule then sleeps exactly that
-       * long before firing again.
+       * `Schedule.forever` provides infinite recurrences with zero delay.
+       * `addDelayZIO` overrides that delay: after each recurrence, it asks
+       * "what time is it now?", computes the next matching cron instant, and
+       * returns the Duration between now and that instant. The schedule then
+       * sleeps exactly that long before firing again.
        *
-       * We pass `now.plusSeconds(1)` to `nextCronTime` so we always
-       * advance at least one second, preventing the schedule from
-       * firing twice at the same second.
+       * We pass `now.plusSeconds(1)` to `nextCronTime` so we always advance at
+       * least one second, preventing the schedule from firing twice at the same
+       * second.
        */
       def cronSchedule[Env, In](
         secondsOfMinute: Set[Int],
@@ -486,11 +484,11 @@ package Retries {
       /**
        * Aligns the first execution to the cron schedule.
        *
-       * Without this, `effect.repeat(cronSchedule)` would run the
-       * effect immediately (at an arbitrary time), then wait for the
-       * next cron slot. This helper ensures even the *first* execution
-       * happens at a matching cron time by sleeping until the next
-       * valid instant before running the effect.
+       * Without this, `effect.repeat(cronSchedule)` would run the effect
+       * immediately (at an arbitrary time), then wait for the next cron slot.
+       * This helper ensures even the *first* execution happens at a matching
+       * cron time by sleeping until the next valid instant before running the
+       * effect.
        */
       def awaitCronAndRun[R, E, A](
         effect: ZIO[R, E, A],
@@ -518,16 +516,16 @@ package Retries {
         } yield result
 
       /**
-       * Demo: fires at seconds :00 and :30 of every minute, on all
-       * days. Limited to 5 recurrences so the example terminates
-       * (runs for about 2.5 minutes).
+       * Demo: fires at seconds :00 and :30 of every minute, on all days.
+       * Limited to 5 recurrences so the example terminates (runs for about 2.5
+       * minutes).
        */
       val run: ZIO[Any, Any, Unit] = {
         // Define the cron fields
-        val seconds = Set(0, 30)          // fire at :00 and :30
-        val minutes = (0 to 59).toSet     // every minute
-        val hours   = (0 to 23).toSet     // every hour
-        val days    = (1 to 7).toSet      // every day (Mon–Sun)
+        val seconds = Set(0, 30)      // fire at :00 and :30
+        val minutes = (0 to 59).toSet // every minute
+        val hours   = (0 to 23).toSet // every hour
+        val days    = (1 to 7).toSet  // every day (Mon–Sun)
 
         val cron = cronSchedule[Any, Unit](seconds, minutes, hours, days)
 
