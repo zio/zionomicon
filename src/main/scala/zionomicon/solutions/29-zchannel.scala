@@ -15,7 +15,48 @@ package ZChannel {
    *   ???
    * }}}
    */
-  package Range {}
+  package Range {
+
+    import zio.stream.ZChannel
+
+    object Solution {
+
+      def range(start: Int, end: Int): ZStream[Any, Nothing, Int] = {
+        def loop(current: Int): ZChannel[Any, Any, Any, Any, Nothing, Chunk[Int], Unit] =
+          if (current > end)
+            ZChannel.unit
+          else
+            ZChannel.write(Chunk.single(current)) *> loop(current + 1)
+
+        ZStream.fromChannel(loop(start))
+      }
+    }
+
+    // --- Example Showcase ---
+
+    object Exercise1Example extends ZIOAppDefault {
+
+      def run: ZIO[Any, Any, Unit] = for {
+        _ <- Console.printLine("=== Exercise 1: ZChannel-based range stream ===")
+        // Range 1 to 10
+        _ <- Console.printLine("\n--- range(1, 10) ---")
+        result1 <- Solution.range(1, 10).runCollect
+        _ <- Console.printLine(s"  ${result1.mkString(", ")}")
+        // Empty range
+        _ <- Console.printLine("\n--- range(5, 3) (empty) ---")
+        result2 <- Solution.range(5, 3).runCollect
+        _ <- Console.printLine(s"  ${result2.mkString(", ")}")
+        // Single element
+        _ <- Console.printLine("\n--- range(42, 42) (single element) ---")
+        result3 <- Solution.range(42, 42).runCollect
+        _ <- Console.printLine(s"  ${result3.mkString(", ")}")
+        // Negative range
+        _ <- Console.printLine("\n--- range(-3, 3) (negative to positive) ---")
+        result4 <- Solution.range(-3, 3).runCollect
+        _ <- Console.printLine(s"  ${result4.mkString(", ")}")
+      } yield ()
+    }
+  }
 
   /**
    *   2. Try to implement the `ZSink.collectAll` sink by yourself using
