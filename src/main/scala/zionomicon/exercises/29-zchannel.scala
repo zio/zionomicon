@@ -1,8 +1,5 @@
 package zionomicon.exercises
 
-import zio._
-import zio.stream._
-
 package ZChannel {
 
   /**
