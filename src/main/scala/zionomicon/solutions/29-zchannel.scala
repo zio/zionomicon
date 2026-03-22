@@ -67,7 +67,43 @@ package ZChannel {
    *   ???
    * }}}
    */
-  package CollectAll {}
+  package CollectAll {
+
+    import zio.stream.ZChannel
+
+    object Solution {
+
+      def collectAll[A]: ZSink[Any, Nothing, A, Nothing, Chunk[A]] = {
+        def loop(
+          acc: Chunk[A]
+        ): ZChannel[Any, ZNothing, Chunk[A], Any, Nothing, Chunk[Nothing], Chunk[A]] =
+          ZChannel.readWithCause(
+            (chunk: Chunk[A]) => loop(acc ++ chunk),
+            (cause: Cause[ZNothing]) => ZChannel.refailCause(cause),
+            (_: Any) => ZChannel.succeed(acc)
+          )
+
+        ZSink.fromChannel(loop(Chunk.empty))
+      }
+    }
+
+    // --- Example Showcase ---
+
+    object Exercise2Example extends ZIOAppDefault {
+
+      def run: ZIO[Any, Any, Unit] = for {
+        _ <- Console.printLine("=== Exercise 2: ZChannel-based collectAll sink ===")
+        // Collect integers
+        _ <- Console.printLine("\n--- Collect stream of 1 to 5 ---")
+        result1 <- ZStream(1, 2, 3, 4, 5).run(Solution.collectAll)
+        _ <- Console.printLine(s"  $result1")
+        // Empty stream
+        _ <- Console.printLine("\n--- Collect empty stream ---")
+        result2 <- ZStream.empty.run(Solution.collectAll[Int])
+        _ <- Console.printLine(s"  $result2")
+      } yield ()
+    }
+  }
 
   /**
    *   3. Try to implement the `ZPipeline.dropWhile` pipeline using `ZChannel`:
