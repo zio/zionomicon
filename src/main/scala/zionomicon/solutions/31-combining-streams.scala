@@ -43,27 +43,15 @@ package CombiningStreams {
         combiner: (Event[A], Event[B]) => C
       ): ZStream[R, E, C] = {
         case class State(
-          bufferedLeft: scala.collection.immutable.Queue[Event[A]],
-          pendingOutput: List[C],
-          maxBufferSize: Int = 100000
+          bufferedLeft: Vector[Event[A]],
+          pendingOutput: Vector[C]
         )
 
-        def cleanupBuffer(
-          currentTime: Long,
-          buffer: scala.collection.immutable.Queue[Event[A]]
-        ): scala.collection.immutable.Queue[Event[A]] = {
-          val windowStart = currentTime - correlationWindow.toMillis
-          buffer.filter(_.timestamp >= windowStart)
+        def cleanupBuffer(currentTime: Long, buffer: Vector[Event[A]]): Vector[Event[A]] = {
+          buffer.filter(_.timestamp >= currentTime - correlationWindow.toMillis)
         }
 
-        def enforceBufferLimit(
-          buffer: scala.collection.immutable.Queue[Event[A]],
-          maxSize: Int
-        ): scala.collection.immutable.Queue[Event[A]] = {
-          if (buffer.size > maxSize) buffer.drop(buffer.size - maxSize) else buffer
-        }
-
-        stream1.combine(stream2)(State(scala.collection.immutable.Queue(), List())) { (state, pullLeft, pullRight) =>
+        stream1.combine(stream2)(State(Vector(), Vector())) { (state, pullLeft, pullRight) =>
           if (state.pendingOutput.nonEmpty) {
             // Emit pending matches
             ZIO.succeed(
@@ -78,29 +66,24 @@ package CombiningStreams {
               (maybeLeft, maybeRight) match {
                 case (Some(leftEvent), Some(rightEvent)) =>
                   // Both available: buffer left event and find matches with right
-                  val buffered = state.bufferedLeft.enqueue(leftEvent)
+                  val buffered = state.bufferedLeft :+ leftEvent
                   val cleaned = cleanupBuffer(rightEvent.timestamp, buffered)
-                  val limited = enforceBufferLimit(cleaned, state.maxBufferSize)
-                  val matches = limited
+                  val matches = cleaned
                     .filter(matcher(_, rightEvent))
                     .map(combiner(_, rightEvent))
-                    .toList
 
                   if (matches.nonEmpty) {
                     val newState = state.copy(
-                      bufferedLeft = limited,
-                      pendingOutput = matches.tail
+                      bufferedLeft = cleaned,
+                      pendingOutput = if (matches.length > 1) matches.tail else Vector()
                     )
                     ZIO.succeed(Exit.succeed((matches.head, newState)))
                   } else {
                     ZIO.succeed(Exit.fail(None))
                   }
 
-                case (Some(leftEvent), None) =>
-                  // Right stream done - buffer remaining left but no more correlations possible
-                  val buffered = state.bufferedLeft.enqueue(leftEvent)
-                  val cleaned = cleanupBuffer(leftEvent.timestamp, buffered)
-                  val _ = enforceBufferLimit(cleaned, state.maxBufferSize)
+                case (Some(_), None) =>
+                  // Right stream done - no more correlations possible
                   ZIO.succeed(Exit.fail(None))
 
                 case (None, Some(rightEvent)) =>
@@ -109,12 +92,11 @@ package CombiningStreams {
                   val matches = cleaned
                     .filter(matcher(_, rightEvent))
                     .map(combiner(_, rightEvent))
-                    .toList
 
                   if (matches.nonEmpty) {
                     val newState = state.copy(
                       bufferedLeft = cleaned,
-                      pendingOutput = matches.tail
+                      pendingOutput = if (matches.length > 1) matches.tail else Vector()
                     )
                     ZIO.succeed(Exit.succeed((matches.head, newState)))
                   } else {
