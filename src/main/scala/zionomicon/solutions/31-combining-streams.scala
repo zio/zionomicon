@@ -47,68 +47,78 @@ package CombiningStreams {
           pendingOutput: Vector[C]
         )
 
-        def cleanupBuffer(currentTime: Long, buffer: Vector[Event[A]]): Vector[Event[A]] = {
+        def cleanupBuffer(
+          currentTime: Long,
+          buffer: Vector[Event[A]]
+        ): Vector[Event[A]] =
           buffer.filter(_.timestamp >= currentTime - correlationWindow.toMillis)
-        }
 
-        stream1.combine(stream2)(State(Vector(), Vector())) { (state, pullLeft, pullRight) =>
-          if (state.pendingOutput.nonEmpty) {
-            // Emit pending matches
-            ZIO.succeed(
-              Exit.succeed((
-                state.pendingOutput.head,
-                state.copy(pendingOutput = state.pendingOutput.tail)
-              ))
-            )
-          } else {
-            // Pull from both streams
-            (pullLeft.option <&> pullRight.option).flatMap { case (maybeLeft, maybeRight) =>
-              (maybeLeft, maybeRight) match {
-                case (Some(leftEvent), Some(rightEvent)) =>
-                  // Both available: buffer left event and find matches with right
-                  val buffered = state.bufferedLeft :+ leftEvent
-                  val cleaned = cleanupBuffer(rightEvent.timestamp, buffered)
-                  val matches = cleaned
-                    .filter(matcher(_, rightEvent))
-                    .map(combiner(_, rightEvent))
+        stream1.combine(stream2)(State(Vector(), Vector())) {
+          (state, pullLeft, pullRight) =>
+            if (state.pendingOutput.nonEmpty) {
+              // Emit pending matches
+              ZIO.succeed(
+                Exit.succeed(
+                  (
+                    state.pendingOutput.head,
+                    state.copy(pendingOutput = state.pendingOutput.tail)
+                  )
+                )
+              )
+            } else {
+              // Pull from both streams
+              (pullLeft.option <&> pullRight.option).flatMap {
+                case (maybeLeft, maybeRight) =>
+                  (maybeLeft, maybeRight) match {
+                    case (Some(leftEvent), Some(rightEvent)) =>
+                      // Both available: buffer left event and find matches with right
+                      val buffered = state.bufferedLeft :+ leftEvent
+                      val cleaned =
+                        cleanupBuffer(rightEvent.timestamp, buffered)
+                      val matches = cleaned
+                        .filter(matcher(_, rightEvent))
+                        .map(combiner(_, rightEvent))
 
-                  if (matches.nonEmpty) {
-                    val newState = state.copy(
-                      bufferedLeft = cleaned,
-                      pendingOutput = if (matches.length > 1) matches.tail else Vector()
-                    )
-                    ZIO.succeed(Exit.succeed((matches.head, newState)))
-                  } else {
-                    ZIO.succeed(Exit.fail(None))
+                      if (matches.nonEmpty) {
+                        val newState = state.copy(
+                          bufferedLeft = cleaned,
+                          pendingOutput =
+                            if (matches.length > 1) matches.tail else Vector()
+                        )
+                        ZIO.succeed(Exit.succeed((matches.head, newState)))
+                      } else {
+                        ZIO.succeed(Exit.fail(None))
+                      }
+
+                    case (Some(_), None) =>
+                      // Right stream done - no more correlations possible
+                      ZIO.succeed(Exit.fail(None))
+
+                    case (None, Some(rightEvent)) =>
+                      // Left stream done - find matches with remaining buffer
+                      val cleaned =
+                        cleanupBuffer(rightEvent.timestamp, state.bufferedLeft)
+                      val matches = cleaned
+                        .filter(matcher(_, rightEvent))
+                        .map(combiner(_, rightEvent))
+
+                      if (matches.nonEmpty) {
+                        val newState = state.copy(
+                          bufferedLeft = cleaned,
+                          pendingOutput =
+                            if (matches.length > 1) matches.tail else Vector()
+                        )
+                        ZIO.succeed(Exit.succeed((matches.head, newState)))
+                      } else {
+                        ZIO.succeed(Exit.fail(None))
+                      }
+
+                    case (None, None) =>
+                      // Both streams done
+                      ZIO.succeed(Exit.fail(None))
                   }
-
-                case (Some(_), None) =>
-                  // Right stream done - no more correlations possible
-                  ZIO.succeed(Exit.fail(None))
-
-                case (None, Some(rightEvent)) =>
-                  // Left stream done - find matches with remaining buffer
-                  val cleaned = cleanupBuffer(rightEvent.timestamp, state.bufferedLeft)
-                  val matches = cleaned
-                    .filter(matcher(_, rightEvent))
-                    .map(combiner(_, rightEvent))
-
-                  if (matches.nonEmpty) {
-                    val newState = state.copy(
-                      bufferedLeft = cleaned,
-                      pendingOutput = if (matches.length > 1) matches.tail else Vector()
-                    )
-                    ZIO.succeed(Exit.succeed((matches.head, newState)))
-                  } else {
-                    ZIO.succeed(Exit.fail(None))
-                  }
-
-                case (None, None) =>
-                  // Both streams done
-                  ZIO.succeed(Exit.fail(None))
               }
             }
-          }
         }
       }
 
@@ -122,45 +132,48 @@ package CombiningStreams {
         _ <- Console.printLine("=== Exercise 1: Correlate Events ===")
 
         // Example 1: HTTP Request/Response Correlation
-        _ <- Console.printLine("\n--- Example 1: HTTP Request/Response Correlation ---")
         _ <- Console.printLine(
-          "Correlating HTTP requests with responses (matching by request ID, within 5s window)"
-        )
+               "\n--- Example 1: HTTP Request/Response Correlation ---"
+             )
+        _ <-
+          Console.printLine(
+            "Correlating HTTP requests with responses (matching by request ID, within 5s window)"
+          )
 
         // Simulated HTTP requests with timestamps
         requests = ZStream(
-          Event("req-001", 1000L, "GET /api/users"),
-          Event("req-002", 1050L, "POST /api/data"),
-          Event("req-003", 1100L, "GET /api/config"),
-          Event("req-004", 1150L, "DELETE /api/cache")
-        )
+                     Event("req-001", 1000L, "GET /api/users"),
+                     Event("req-002", 1050L, "POST /api/data"),
+                     Event("req-003", 1100L, "GET /api/config"),
+                     Event("req-004", 1150L, "DELETE /api/cache")
+                   )
 
         // Simulated HTTP responses arriving at different times
         responses = ZStream(
-          Event("req-001", 1250L, "200 OK"),
-          Event("req-002", 1500L, "201 Created"),
-          Event("req-003", 6200L, "200 OK"), // Outside 5s window!
-          Event("req-004", 6350L, "204 No Content")
-        )
+                      Event("req-001", 1250L, "200 OK"),
+                      Event("req-002", 1500L, "201 Created"),
+                      Event("req-003", 6200L, "200 OK"), // Outside 5s window!
+                      Event("req-004", 6350L, "204 No Content")
+                    )
 
         _ <- Solution
-          .correlateEvents(
-            requests,
-            responses,
-            5.seconds,
-            (req: Event[String], resp: Event[String]) => req.id == resp.id,
-            (req: Event[String], resp: Event[String]) =>
-              s"${req.id}: '${req.data}' -> '${resp.data}' (${resp.timestamp - req.timestamp}ms)"
-          )
-          .foreach(c => Console.printLine(s"  ✓ $c"))
+               .correlateEvents(
+                 requests,
+                 responses,
+                 5.seconds,
+                 (req: Event[String], resp: Event[String]) => req.id == resp.id,
+                 (req: Event[String], resp: Event[String]) =>
+                   s"${req.id}: '${req.data}' -> '${resp.data}' (${resp.timestamp - req.timestamp}ms)"
+               )
+               .foreach(c => Console.printLine(s"  ✓ $c"))
       } yield ()
     }
   }
 
   /**
-   *   2. Combine two streams where the priority stream takes precedence.
-   *      When elements are available from both streams, elements from the
-   *      priority stream should be processed first:
+   *   2. Combine two streams where the priority stream takes precedence. When
+   *      elements are available from both streams, elements from the priority
+   *      stream should be processed first:
    *
    * {{{
    * def priorityMerge[A](
@@ -180,44 +193,54 @@ package CombiningStreams {
         case class State(priorityQueue: Vector[A], regularQueue: Vector[A])
 
         priority.combine(regular)(State(Vector(), Vector())) {
-          (state: State, pullPriority: ZIO[Any, Option[Nothing], A], pullRegular: ZIO[Any, Option[Nothing], A]) =>
+          (
+            state: State,
+            pullPriority: ZIO[Any, Option[Nothing], A],
+            pullRegular: ZIO[Any, Option[Nothing], A]
+          ) =>
             if (state.priorityQueue.nonEmpty) {
               // Priority: emit from priority queue first
               ZIO.succeed(
-                Exit.succeed((
-                  state.priorityQueue.head,
-                  state.copy(priorityQueue = state.priorityQueue.tail)
-                ))
+                Exit.succeed(
+                  (
+                    state.priorityQueue.head,
+                    state.copy(priorityQueue = state.priorityQueue.tail)
+                  )
+                )
               )
             } else if (state.regularQueue.nonEmpty) {
               // Second priority: emit from regular queue
               ZIO.succeed(
-                Exit.succeed((
-                  state.regularQueue.head,
-                  state.copy(regularQueue = state.regularQueue.tail)
-                ))
+                Exit.succeed(
+                  (
+                    state.regularQueue.head,
+                    state.copy(regularQueue = state.regularQueue.tail)
+                  )
+                )
               )
             } else {
               // Both queues empty - pull from both streams
-              (pullPriority.option <&> pullRegular.option).flatMap { case (maybePriority, maybeRegular) =>
-                (maybePriority, maybeRegular) match {
-                  case (Some(priorityElem), Some(regularElem)) =>
-                    // Both available - emit priority immediately, buffer regular for later
-                    val newState = state.copy(regularQueue = Vector(regularElem))
-                    ZIO.succeed(Exit.succeed((priorityElem, newState)))
+              (pullPriority.option <&> pullRegular.option).flatMap {
+                case (maybePriority, maybeRegular) =>
+                  (maybePriority, maybeRegular) match {
+                    case (Some(priorityElem), Some(regularElem)) =>
+                      // Both available - emit priority immediately, buffer regular for later
+                      val newState =
+                        state.copy(regularQueue = Vector(regularElem))
+                      ZIO.succeed(Exit.succeed((priorityElem, newState)))
 
-                  case (Some(priorityElem), None) =>
-                    // Only priority available
-                    ZIO.succeed(Exit.succeed((priorityElem, state)))
+                    case (Some(priorityElem), None) =>
+                      // Only priority available
+                      ZIO.succeed(Exit.succeed((priorityElem, state)))
 
-                  case (None, Some(regularElem)) =>
-                    // Only regular available (priority stream exhausted)
-                    ZIO.succeed(Exit.succeed((regularElem, state)))
+                    case (None, Some(regularElem)) =>
+                      // Only regular available (priority stream exhausted)
+                      ZIO.succeed(Exit.succeed((regularElem, state)))
 
-                  case (None, None) =>
-                    // Both streams exhausted
-                    ZIO.succeed(Exit.fail(None))
-                }
+                    case (None, None) =>
+                      // Both streams exhausted
+                      ZIO.succeed(Exit.fail(None))
+                  }
               }
             }
         }
@@ -233,18 +256,28 @@ package CombiningStreams {
         _ <- Console.printLine("=== Exercise 2: Priority Merge ===")
         // Slow priority stream - emits every 5000ms
         slowPriority = ZStream(
-          "CRITICAL-1", "CRITICAL-2", "CRITICAL-3", "CRITICAL-4"
-        ).schedule(Schedule.fixed(5000.millis))
+                         "CRITICAL-1",
+                         "CRITICAL-2",
+                         "CRITICAL-3",
+                         "CRITICAL-4"
+                       ).schedule(Schedule.fixed(5000.millis))
 
         // Fast regular stream - emits every 100ms
         fastRegular = ZStream(
-          "task-a", "task-b", "task-c", "task-d",
-          "task-e", "task-f", "task-g", "task-h"
-        ).schedule(Schedule.fixed(100.millis))
+                        "task-a",
+                        "task-b",
+                        "task-c",
+                        "task-d",
+                        "task-e",
+                        "task-f",
+                        "task-g",
+                        "task-h"
+                      ).schedule(Schedule.fixed(100.millis))
 
         _ <- Solution
-          .priorityMerge(slowPriority, fastRegular)
-          .foreach(task => Console.printLine(s"  Result: $task"))
+               .priorityMerge(slowPriority, fastRegular)
+               .debug("emitted")
+               .runDrain
       } yield ()
     }
   }
@@ -275,38 +308,57 @@ package CombiningStreams {
       ): ZStream[R, E, A] = {
         case class State(
           samplesPerMinute: Int,
-          samplesEmitted: Long,
+          lastEmittedTime: Long, // Track when we last emitted (for sliding window)
           windowStartTime: Long
         )
 
-        def shouldEmitSample(state: State, currentTime: Long): Boolean = {
-          val windowDuration = currentTime - state.windowStartTime
-          if (windowDuration <= 0) true // Always emit if window not started
-          else {
-            val maxSamples = (windowDuration / 60000.0) * state.samplesPerMinute
-            state.samplesEmitted < maxSamples.toLong
+        def shouldEmitSample(state: State, currentTime: Long): Boolean =
+          if (state.lastEmittedTime == 0) {
+            // First sample - always emit
+            true
+          } else {
+            // Calculate minimum time between samples based on rate
+            val oneMinuteMs = 60000L
+            val msPerSample = oneMinuteMs / state.samplesPerMinute
+            // Emit only if enough time has passed since last emission
+            currentTime - state.lastEmittedTime >= msPerSample
           }
-        }
 
         // Pair data with latest config, then sample based on rate
         dataStream
-          .zipLatestWith(controlStream) { (dataElem, config) => (dataElem, config) }
-          .scanZIO((State(samplesPerMinute = 60, samplesEmitted = 0, windowStartTime = 0), Option.empty[A])) {
-            (stateWithOutput, pair) =>
-              val (state, _) = stateWithOutput
-              val (dataElem, config) = pair
-              val currentTime = java.lang.System.currentTimeMillis()
-              // Initialize window time on first call
-              val actualState =
-                if (state.windowStartTime == 0) state.copy(windowStartTime = currentTime) else state
-              // Update sampling rate
-              val newState = actualState.copy(samplesPerMinute = config.samplesPerMinutes)
-              // Check if we should emit
-              val shouldEmit = shouldEmitSample(newState, currentTime)
-              val updatedState =
-                if (shouldEmit) newState.copy(samplesEmitted = newState.samplesEmitted + 1)
-                else newState
-              ZIO.succeed((updatedState, if (shouldEmit) Some(dataElem) else None))
+          .zipLatestWith(controlStream) { (dataElem, config) =>
+            (dataElem, config)
+          }
+          .scanZIO(
+            (
+              State(
+                samplesPerMinute = 60,
+                lastEmittedTime = 0,
+                windowStartTime = 0
+              ),
+              Option.empty[A]
+            )
+          ) { (stateWithOutput, pair) =>
+            val (state, _)         = stateWithOutput
+            val (dataElem, config) = pair
+            val currentTime        = java.lang.System.currentTimeMillis()
+            // Initialize window time on first call
+            val actualState =
+              if (state.windowStartTime == 0)
+                state.copy(windowStartTime = currentTime)
+              else state
+            // Update sampling rate
+            val newState =
+              actualState.copy(samplesPerMinute = config.samplesPerMinutes)
+            // Check if we should emit based on sliding window (time-based spacing)
+            val shouldEmit = shouldEmitSample(newState, currentTime)
+            val updatedState =
+              if (shouldEmit)
+                newState.copy(lastEmittedTime = currentTime)
+              else newState
+            ZIO.succeed(
+              (updatedState, if (shouldEmit) Some(dataElem) else None)
+            )
           }
           .collect { case (_, Some(elem)) => elem }
       }
@@ -314,37 +366,41 @@ package CombiningStreams {
     }
 
     // --- Example Showcase ---
-
     object Exercise3Example extends ZIOAppDefault {
 
       def run: ZIO[Any, Any, Unit] = for {
         _ <- Console.printLine("=== Exercise 3: Adaptive Sampling ===")
-        _ <- Console.printLine("\n--- Sampling with dynamic rate adjustment ---")
+        _ <-
+          Console.printLine("\n--- Sampling with dynamic rate adjustment ---")
 
         // Data stream: simulates metrics being produced continuously
         dataStream = ZStream
-          .iterate(1)(_ + 1)
-          .map(i => s"metric-$i")
-          .take(100)
-          .schedule(Schedule.fixed(50.millis))
-
+                       .fromIterable(1 to 6000)
+                       .map(i => s"metric-$i")
+                       .schedule(
+                         Schedule.spaced(10.millis)
+                       )
         // Control stream: adjusts sampling rate based on system load
-        controlStream = ZStream(
-          SamplingConfig(samplesPerMinutes = 120), // High sample rate initially
-          SamplingConfig(samplesPerMinutes = 60),  // Reduce to medium
-          SamplingConfig(samplesPerMinutes = 30)   // Further reduce under load
-        ).schedule(Schedule.fixed(2.seconds))
+        controlStream =
+          ZStream(
+            SamplingConfig(samplesPerMinutes = 100),
+            SamplingConfig(samplesPerMinutes = 200),
+            SamplingConfig(samplesPerMinutes = 50)
+          )
+            .schedule(Schedule.fixed(5.seconds))
+            .debug("Control stream emitted new sampling config")
 
         sampledCount <- Solution
-          .adaptiveSampling(dataStream, controlStream)
-          .runCount
+                          .adaptiveSampling(dataStream, controlStream)
+                          .debug("emitted")
+                          .runCount
 
         _ <- Console.printLine(
-          s"  Total data points: 100, Samples emitted: $sampledCount"
-        )
+               s"  Total data samples emitted: $sampledCount"
+             )
         _ <- Console.printLine(
-          s"  Sampling adjusted dynamically based on control stream"
-        )
+               s"  Sampling adjusted dynamically based on control stream"
+             )
       } yield ()
     }
   }
