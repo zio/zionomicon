@@ -1,5 +1,8 @@
 package zionomicon.solutions
 
+import zio._
+import zio.stream._
+
 package StreamsAdvancedOperations {
 
   /**
@@ -14,7 +17,7 @@ package StreamsAdvancedOperations {
 
       def fibonacci: ZStream[Any, Nothing, Long] =
         ZStream.unfold((0L, 1L)) { case (a, b) =>
-          (a, (b, a + b))
+          Some((a, (b, a + b)))
         }
     }
 
@@ -47,10 +50,10 @@ package StreamsAdvancedOperations {
         Double
       ] =
         _.mapAccum((0L, 0)) { case ((sum, count), elem) =>
-          val newSum = sum + elem
+          val newSum = sum + elem.toLong
           val newCount = count + 1
           val avg = newSum.toDouble / newCount
-          (avg, (newSum, newCount))
+          ((newSum, newCount), avg)
         }
     }
 
@@ -128,26 +131,22 @@ package StreamsAdvancedOperations {
       def slidingDeduplicateByTime[A](
         windowDurationMs: Long
       ): ZStream[Any, Nothing, A] => ZStream[Any, Nothing, A] =
-        _.mapAccum(scala.collection.immutable.Queue.empty[A]) {
-          case (window, elem) =>
-            (elem, window.enqueue(elem))
-        }.scan(scala.collection.immutable.Set.empty[Any]) { case (seen, elem) =>
-          seen + elem
-        }
-          .mapAccum((scala.collection.immutable.Queue.empty[Any], 0L)) {
-            case ((window, lastCleanup), elem) =>
-              val now = System.currentTimeMillis()
-              val cleanWindow =
-                if (now - lastCleanup > windowDurationMs) {
-                  scala.collection.immutable.Queue(elem)
-                } else {
-                  window.enqueue(elem)
-                }
+        _.mapAccum(
+          (scala.collection.immutable.Queue.empty[A], 0L)
+        ) { case ((window, lastCleanup), elem) =>
+          val now = java.lang.System.currentTimeMillis()
+          val cleanWindow =
+            if (now - lastCleanup > windowDurationMs) {
+              scala.collection.immutable.Queue(elem)
+            } else {
+              window.enqueue(elem)
+            }
 
-              val isDuplicate = window.contains(elem)
-              ((!isDuplicate, elem), (cleanWindow, now))
-          }
-          .collect { case (true, elem) => elem }
+          val isDuplicate = window.contains(elem)
+          val output = if (!isDuplicate) Some(elem) else None
+          ((cleanWindow, now), output)
+        }
+          .collect { case Some(elem) => elem }
     }
 
     // --- Example Showcase ---
@@ -187,26 +186,15 @@ package StreamsAdvancedOperations {
       // Note: In a real application, you would use a JSON library like zio-json
       // to parse the GitHub API response. This is a simplified version.
 
-      def fetchRepositories: ZStream[Client, Throwable, Repository] =
-        ZStream.paginateZIO(1) { page =>
-          for {
-            client <- ZIO.service[Client]
-            response <- client
-              .url(
-                s"https://api.github.com/orgs/zio/repos?page=$page&per_page=30"
-              )
-              .get
-              .mapError(e => new Exception(e))
-              .flatMap(_.body.asString.mapError(e => new Exception(e)))
-            // Simulate parsing (in reality, use zio-json)
-            repos = List(
-              Repository("zio", 4000),
-              Repository("zio-http", 2000),
-              Repository("zio-prelude", 1500)
-            )
-            nextPage = if (repos.isEmpty) None else Some(page + 1)
-          } yield (repos, nextPage)
-        }
+      def fetchRepositories: ZStream[Any, Nothing, Repository] = {
+        val mockRepos = List(
+          Repository("zio", 4000),
+          Repository("zio-http", 2000),
+          Repository("zio-prelude", 1500),
+          Repository("zio-query", 1200)
+        )
+        ZStream.fromIterable(mockRepos)
+      }
     }
 
     // --- Example Showcase ---
@@ -311,30 +299,23 @@ package StreamsAdvancedOperations {
 
       def broadcastStream(
         stream: ZStream[Any, Nothing, Int]
-      ): ZIO[Any, Nothing, Unit] = {
-        ZIO.scoped {
-          for {
-            hub <- stream.toHub(16)
-            _ <- ZIO.forkAll(
-              List(
-                ZHub.fromHub(hub)
-                  .filter(_ % 2 == 0)
-                  .foreach(n =>
-                    Console.printLine(s"Even consumer: $n")
-                  ),
-                ZHub.fromHub(hub)
-                  .filter(_ % 2 != 0)
-                  .foreach(n =>
-                    Console.printLine(s"Odd consumer: $n")
-                  ),
-                ZHub.fromHub(hub)
-                  .foreach(n =>
-                    Console.printLine(s"Multiplied consumer: ${n * 10}")
-                  )
-              )
-            )
-          } yield ()
-        }
+      ): ZIO[Any, Throwable, Unit] = {
+        for {
+          evenFiber <- stream
+            .filter(_ % 2 == 0)
+            .foreach(n => Console.printLine(s"Even consumer: $n"))
+            .fork
+          oddFiber <- stream
+            .filter(_ % 2 != 0)
+            .foreach(n => Console.printLine(s"Odd consumer: $n"))
+            .fork
+          multipliedFiber <- stream
+            .foreach(n => Console.printLine(s"Multiplied consumer: ${n * 10}"))
+            .fork
+          _ <- evenFiber.join
+          _ <- oddFiber.join
+          _ <- multipliedFiber.join
+        } yield ()
       }
     }
 
