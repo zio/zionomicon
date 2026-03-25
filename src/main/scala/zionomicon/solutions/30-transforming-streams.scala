@@ -218,7 +218,6 @@ package StreamsAdvancedOperations {
     import zio._
     import zio.stream._
     import zio.json._
-    import java.net.http.{HttpClient, HttpRequest}
 
     object GitHubClient {
 
@@ -230,8 +229,6 @@ package StreamsAdvancedOperations {
           DeriveJsonDecoder.gen[Repository]
       }
 
-      private val httpClient = HttpClient.newHttpClient()
-
       private def fetchPage(
         org: String,
         page: Int
@@ -239,19 +236,16 @@ package StreamsAdvancedOperations {
         ZIO.attempt {
           val url =
             s"https://api.github.com/orgs/$org/repos?page=$page&per_page=30&sort=stars&order=desc"
-          val request =
-            HttpRequest.newBuilder(new java.net.URI(url)).GET().build()
-          val response = httpClient.send(
-            request,
-            java.net.http.HttpResponse.BodyHandlers.ofString()
-          )
-          response
-            .body()
-            .fromJson[List[Repository]]
-            .fold(
-              err => throw new RuntimeException(s"JSON decode error: $err"),
-              identity
-            )
+          val source = scala.io.Source.fromURL(url)
+          try {
+            val body = source.mkString
+            body
+              .fromJson[List[Repository]]
+              .fold(
+                err => throw new RuntimeException(s"JSON decode error: $err"),
+                identity
+              )
+          } finally source.close()
         }
 
       def fetchRepositories(
