@@ -321,22 +321,28 @@ package StreamsAdvancedOperations {
     object Exercise5Example extends ZIOAppDefault {
 
       def run: ZIO[Any, Any, Unit] =
-        GitHubClient
-          .fetchRepositories()
-          .take(10)
-          .foreach(repo =>
-            Console.printLine(
-              s"Repository: ${repo.name} (⭐ ${repo.stargazers_count})"
-            )
-          )
-          .catchAll { err =>
-            val errorMsg = s"Error fetching repositories: ${err.getMessage}"
-            val stackTrace =
-              if (err.getCause != null)
-                s"\nCause: ${err.getCause.getClass.getSimpleName}: ${err.getCause.getMessage}"
-              else ""
-            Console.printLineError(errorMsg + stackTrace)
-          }
+        (for {
+          // Collect repositories from the stream and sort by stars
+          repos <- GitHubClient
+                     .fetchRepositories()
+                     .runCollect
+          sorted = repos.sortBy(_.stargazers_count)(Ordering[Int].reverse)
+          topTen = sorted.take(10)
+          _     <- Console.printLine("=== Top 10 ZIO Repositories by Stars ===")
+          _ <-
+            ZIO.foreach(topTen.zipWithIndex) { case (repo, idx) =>
+              Console.printLine(
+                s"${idx + 1}. ${repo.name.padTo(30, ' ')} ⭐ ${repo.stargazers_count}"
+              )
+            }
+        } yield ()).catchAll { err =>
+          val errorMsg = s"Error fetching repositories: ${err.getMessage}"
+          val stackTrace =
+            if (err.getCause != null)
+              s"\nCause: ${err.getCause.getClass.getSimpleName}: ${err.getCause.getMessage}"
+            else ""
+          Console.printLineError(errorMsg + stackTrace)
+        }
     }
   }
 
