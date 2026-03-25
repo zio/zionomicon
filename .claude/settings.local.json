@@ -8,7 +8,12 @@
       "Bash(grep -v \"^$\")",
       "Bash(git add:*)",
       "Bash(git commit -m \"fix: Resolve compilation issues in 30-transforming-streams.scala:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(gh pr:*)",
+      "Bash(git reset:*)",
+      "Bash(gh run:*)",
+      "Bash(sbtn --client 'fmt')",
+      "Bash(git commit:*)"
     ]
   }
 }
