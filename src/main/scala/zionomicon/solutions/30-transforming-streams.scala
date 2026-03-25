@@ -86,18 +86,26 @@ package StreamsAdvancedOperations {
 
       def movingAverage(
         windowSize: Int
-      ): ZStream[Any, Nothing, Int] => ZStream[Any, Nothing, Double] =
-        _.scan(Queue.empty[Int]) { case (queue, elem) =>
-          val newQueue = if (queue.size < windowSize) {
-            queue.enqueue(elem)
-          } else {
-            queue.dequeue._2.enqueue(elem)
-          }
-          newQueue
-        }.collect {
-          case q if q.nonEmpty =>
-            q.sum.toDouble / q.size
-        }
+      ): ZStream[Any, Nothing, Int] => ZStream[Any, Nothing, Double] = {
+        require(
+          windowSize > 0,
+          s"windowSize must be positive, but was $windowSize"
+        )
+        (stream: ZStream[Any, Nothing, Int]) =>
+          stream
+            .scan(Queue.empty[Int]) { case (queue, elem) =>
+              val newQueue = if (queue.size < windowSize) {
+                queue.enqueue(elem)
+              } else {
+                queue.dequeue._2.enqueue(elem)
+              }
+              newQueue
+            }
+            .collect {
+              case q if q.nonEmpty =>
+                q.sum.toDouble / q.size
+            }
+      }
     }
 
     // --- Example Showcase ---
@@ -134,18 +142,40 @@ package StreamsAdvancedOperations {
       def slidingDeduplicateByTime[A](
         windowDurationMs: Long
       ): ZStream[Any, Nothing, A] => ZStream[Any, Nothing, A] =
-        _.mapAccum((scala.collection.immutable.Queue.empty[A], 0L)) {
-          case ((window, lastCleanup), elem) =>
-            val now = java.lang.System.currentTimeMillis()
-            val cleanWindow =
-              if (now - lastCleanup > windowDurationMs) {
-                scala.collection.immutable.Queue(elem)
-              } else {
-                window.enqueue(elem)
-              }
+        _.mapAccum(
+          (
+            scala.collection.immutable.Queue.empty[TimestampedElement[A]],
+            Set.empty[A]
+          )
+        ) { case ((window, currentSet), elem) =>
+          val now = java.lang.System.currentTimeMillis()
 
-            val isDuplicate = window.contains(elem)
-            ((cleanWindow, now), (!isDuplicate, elem))
+          // Evict elements that are older than the window duration
+          @annotation.tailrec
+          def evictExpired(
+            q: scala.collection.immutable.Queue[TimestampedElement[A]],
+            s: Set[A]
+          ): (scala.collection.immutable.Queue[TimestampedElement[A]], Set[A]) =
+            q.headOption match {
+              case Some(TimestampedElement(value, ts))
+                  if now - ts > windowDurationMs =>
+                evictExpired(q.tail, s - value)
+              case _ =>
+                (q, s)
+            }
+
+          val (cleanWindow, cleanSet) = evictExpired(window, currentSet)
+
+          if (cleanSet.contains(elem)) {
+            // Element is a duplicate within the current time window
+            ((cleanWindow, cleanSet), (false, elem))
+          } else {
+            // New element within the window; add it to the state
+            val updatedWindow =
+              cleanWindow.enqueue(TimestampedElement(elem, now))
+            val updatedSet = cleanSet + elem
+            ((updatedWindow, updatedSet), (true, elem))
+          }
         }.collect { case (true, elem) => elem }
     }
 
@@ -191,12 +221,22 @@ package StreamsAdvancedOperations {
           .paginateZIO(1) { page =>
             ZIO.succeed {
               // Simulate parsing (in reality, use zio-json with real HTTP calls)
-              val repos = List(
-                Repository("zio", 4000),
-                Repository("zio-http", 2000),
-                Repository("zio-prelude", 1500)
-              )
-              val nextPage = if (page > 1) None else Some(page + 1)
+              val repos = page match {
+                case 1 =>
+                  List(
+                    Repository("zio", 4000),
+                    Repository("zio-http", 2000),
+                    Repository("zio-prelude", 1500)
+                  )
+                case 2 =>
+                  List(
+                    Repository("zio-json", 800),
+                    Repository("zio-schema", 600)
+                  )
+                case _ =>
+                  List()
+              }
+              val nextPage = if (repos.isEmpty) None else Some(page + 1)
               (repos, nextPage)
             }
           }
@@ -259,7 +299,7 @@ package StreamsAdvancedOperations {
             case View     => counts.copy(views = counts.views + 1)
             case Purchase => counts.copy(purchases = counts.purchases + 1)
           }
-        }
+        }.drop(1)
     }
 
     // --- Example Showcase ---
@@ -307,28 +347,35 @@ package StreamsAdvancedOperations {
 
       def broadcastStream(
         stream: ZStream[Any, Nothing, Int]
-      ): ZIO[Any, Nothing, Unit] = {
-        val evenConsumer =
-          stream
-            .filter(_ % 2 == 0)
-            .foreach(n => Console.printLine(s"Even consumer: $n"))
-
-        val oddConsumer =
-          stream
-            .filter(_ % 2 != 0)
-            .foreach(n => Console.printLine(s"Odd consumer: $n"))
-
-        val multipliedConsumer =
-          stream
-            .foreach(n => Console.printLine(s"Multiplied consumer: ${n * 10}"))
-
+      ): ZIO[Any, Nothing, Unit] =
         ZIO.scoped {
           for {
-            _ <-
-              ZIO.forkAll(List(evenConsumer, oddConsumer, multipliedConsumer))
+            // Create three broadcasted streams from a single upstream producer
+            streams         <- stream.broadcast(3, 16)
+            evenStream       = streams(0)
+            oddStream        = streams(1)
+            multipliedStream = streams(2)
+            // Run all consumers in parallel using zipParRight for fan-out
+            _ <- evenStream
+                   .filter(_ % 2 == 0)
+                   .foreach(n => Console.printLine(s"Even consumer: $n"))
+                   .mapError(_ => ())
+                   .zipParRight(
+                     oddStream
+                       .filter(_ % 2 != 0)
+                       .foreach(n => Console.printLine(s"Odd consumer: $n"))
+                       .mapError(_ => ())
+                   )
+                   .zipParRight(
+                     multipliedStream
+                       .foreach(n =>
+                         Console.printLine(s"Multiplied consumer: ${n * 10}")
+                       )
+                       .mapError(_ => ())
+                   )
           } yield ()
         }
-      }
+          .catchAll(_ => ZIO.unit)
     }
 
     // --- Example Showcase ---
