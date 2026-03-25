@@ -2,12 +2,6 @@ package zionomicon.solutions
 
 package StreamsAdvancedOperations {
 
-  import zio._
-  import zio.stream._
-  import zio.http.Client
-  import scala.collection.immutable.Queue
-  import java.time.Instant
-
   /**
    *   1. Create an infinite stream of the Fibonacci sequence using
    *      `ZStream.unfold`.
@@ -183,7 +177,6 @@ package StreamsAdvancedOperations {
 
     import zio._
     import zio.stream._
-    import zio.http.Client
 
     object GitHubClient {
 
