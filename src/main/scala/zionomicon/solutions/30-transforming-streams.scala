@@ -217,36 +217,49 @@ package StreamsAdvancedOperations {
 
     import zio._
     import zio.stream._
+    import zio.json._
 
     object GitHubClient {
 
-      // Simple case class for a repository
-      case class Repository(name: String, stars: Int)
+      // Case classes for JSON decoding
+      case class Repository(name: String, stargazers_count: Int)
 
-      // Note: In a real application, you would use a JSON library like zio-json
-      // to parse the GitHub API response. This is a simplified version.
+      object Repository {
+        implicit val decoder: JsonDecoder[Repository] =
+          DeriveJsonDecoder.gen[Repository]
+      }
 
-      def fetchRepositories: ZStream[Any, Nothing, Repository] =
+      private def fetchPage(
+        org: String,
+        page: Int
+      ): ZIO[Any, Throwable, List[Repository]] =
+        ZIO.attempt {
+          val url =
+            s"https://api.github.com/orgs/$org/repos?page=$page&per_page=30&sort=stars&order=desc"
+          val connection = new java.net.URL(url).openConnection()
+          val source = scala.io.Source.fromInputStream(
+            connection.getInputStream
+          )
+          try {
+            val body = source.mkString
+            body
+              .fromJson[List[Repository]]
+              .fold(
+                err => throw new RuntimeException(s"JSON decode error: $err"),
+                repos => repos
+              )
+          } finally source.close()
+        }
+
+      def fetchRepositories(
+        org: String = "zio"
+      ): ZStream[Any, Throwable, Repository] =
         ZStream
           .paginateZIO(1) { page =>
-            ZIO.succeed {
-              // Simulate parsing (in reality, use zio-json with real HTTP calls)
-              val repos = page match {
-                case 1 =>
-                  List(
-                    Repository("zio", 4000),
-                    Repository("zio-http", 2000),
-                    Repository("zio-prelude", 1500)
-                  )
-                case 2 =>
-                  List(
-                    Repository("zio-json", 800),
-                    Repository("zio-schema", 600)
-                  )
-                case _ =>
-                  List()
-              }
-              val nextPage = if (repos.isEmpty) None else Some(page + 1)
+            fetchPage(org, page).map { repos =>
+              val nextPage =
+                if (repos.isEmpty || repos.size < 30) None
+                else Some(page + 1)
               (repos, nextPage)
             }
           }
@@ -258,13 +271,19 @@ package StreamsAdvancedOperations {
     object Exercise5Example extends ZIOAppDefault {
 
       def run: ZIO[Any, Any, Unit] =
-        ZIO.scoped {
-          GitHubClient.fetchRepositories
-            .take(10)
-            .foreach(repo =>
-              Console.printLine(s"Repository: ${repo.name} (⭐ ${repo.stars})")
+        GitHubClient
+          .fetchRepositories()
+          .take(10)
+          .foreach(repo =>
+            Console.printLine(
+              s"Repository: ${repo.name} (⭐ ${repo.stargazers_count})"
             )
-        }
+          )
+          .catchAll(err =>
+            Console.printLineError(
+              s"Error fetching repositories: ${err.getMessage}"
+            )
+          )
     }
   }
 
