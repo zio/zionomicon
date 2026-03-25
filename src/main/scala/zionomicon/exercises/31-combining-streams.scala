@@ -25,9 +25,9 @@ package CombiningStreams {
   package CorrelateEvents {}
 
   /**
-   *   2. Combine two streams where the priority stream takes precedence.
-   *      When elements are available from both streams, elements from the
-   *      priority stream should be processed first:
+   *   2. Combine two streams where the priority stream takes precedence. When
+   *      elements are available from both streams, elements from the priority
+   *      stream should be processed first:
    *
    * {{{
    * def priorityMerge[A](
