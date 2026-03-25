@@ -231,25 +231,20 @@ package CombiningStreams {
 
       def run: ZIO[Any, Any, Unit] = for {
         _ <- Console.printLine("=== Exercise 2: Priority Merge ===")
-        _ <- Console.printLine("\n--- Priority stream gets processed first ---")
-        // Priority stream: urgent tasks
-        priority = ZStream("URGENT-1", "URGENT-2", "URGENT-3")
-        // Regular stream: normal tasks
-        regular = ZStream("task-a", "task-b", "task-c")
+        // Slow priority stream - emits every 5000ms
+        slowPriority = ZStream(
+          "CRITICAL-1", "CRITICAL-2", "CRITICAL-3", "CRITICAL-4"
+        ).schedule(Schedule.fixed(5000.millis))
 
-        _ <- Solution
-          .priorityMerge(priority, regular)
-          .foreach(task => Console.printLine(s"  Processing: $task"))
-
-        _ <- Console.printLine("\n--- Different speeds: priority is slower ---")
-        // Priority stream: slower but more important
-        slowPriority = ZStream("IMPORTANT-1", "IMPORTANT-2").schedule(Schedule.fixed(100.millis))
-        // Regular stream: faster
-        fastRegular = ZStream("normal-1", "normal-2", "normal-3").schedule(Schedule.fixed(50.millis))
+        // Fast regular stream - emits every 100ms
+        fastRegular = ZStream(
+          "task-a", "task-b", "task-c", "task-d",
+          "task-e", "task-f", "task-g", "task-h"
+        ).schedule(Schedule.fixed(100.millis))
 
         _ <- Solution
           .priorityMerge(slowPriority, fastRegular)
-          .foreach(task => Console.printLine(s"  Processing: $task"))
+          .foreach(task => Console.printLine(s"  Result: $task"))
       } yield ()
     }
   }
