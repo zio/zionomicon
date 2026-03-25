@@ -236,19 +236,69 @@ package StreamsAdvancedOperations {
         ZIO.attempt {
           val url =
             s"https://api.github.com/orgs/$org/repos?page=$page&per_page=30&sort=stars&order=desc"
-          val connection = new java.net.URL(url).openConnection()
-          val source = scala.io.Source.fromInputStream(
-            connection.getInputStream
-          )
           try {
-            val body = source.mkString
-            body
-              .fromJson[List[Repository]]
-              .fold(
-                err => throw new RuntimeException(s"JSON decode error: $err"),
-                repos => repos
+            val connection = new java.net.URL(url).openConnection()
+            connection
+              .asInstanceOf[java.net.HttpURLConnection]
+              .setRequestProperty(
+                "User-Agent",
+                "Scala-ZIO-Client"
               )
-          } finally source.close()
+            connection.setConnectTimeout(5000)
+            connection.setReadTimeout(10000)
+
+            val responseCode =
+              connection
+                .asInstanceOf[java.net.HttpURLConnection]
+                .getResponseCode()
+            if (responseCode != 200) {
+              throw new RuntimeException(
+                s"HTTP $responseCode: ${connection.asInstanceOf[java.net.HttpURLConnection].getResponseMessage()}"
+              )
+            }
+
+            val source = scala.io.Source.fromInputStream(
+              connection.getInputStream
+            )
+            try {
+              val body = source.mkString
+              if (body.isEmpty) {
+                throw new RuntimeException(
+                  "Empty response body from GitHub API"
+                )
+              }
+              body
+                .fromJson[List[Repository]]
+                .fold(
+                  err =>
+                    throw new RuntimeException(
+                      s"JSON decode error: $err. Response: ${body.take(200)}"
+                    ),
+                  repos => repos
+                )
+            } finally source.close()
+          } catch {
+            case e: java.net.UnknownHostException =>
+              throw new RuntimeException(
+                s"DNS resolution failed for api.github.com. Check your network/proxy settings: ${e.getMessage}",
+                e
+              )
+            case e: java.net.ConnectException =>
+              throw new RuntimeException(
+                s"Failed to connect to api.github.com. Check proxy settings and network connectivity: ${e.getMessage}",
+                e
+              )
+            case e: javax.net.ssl.SSLException =>
+              throw new RuntimeException(
+                s"SSL/TLS certificate error: ${e.getMessage}. Try setting: -Dcom.sun.security.cert.checkRevocation=false",
+                e
+              )
+            case e: Throwable =>
+              throw new RuntimeException(
+                s"Error fetching from GitHub API: ${e.getClass.getSimpleName}: ${e.getMessage}",
+                e
+              )
+          }
         }
 
       def fetchRepositories(
@@ -279,11 +329,14 @@ package StreamsAdvancedOperations {
               s"Repository: ${repo.name} (⭐ ${repo.stargazers_count})"
             )
           )
-          .catchAll(err =>
-            Console.printLineError(
-              s"Error fetching repositories: ${err.getMessage}"
-            )
-          )
+          .catchAll { err =>
+            val errorMsg = s"Error fetching repositories: ${err.getMessage}"
+            val stackTrace =
+              if (err.getCause != null)
+                s"\nCause: ${err.getCause.getClass.getSimpleName}: ${err.getCause.getMessage}"
+              else ""
+            Console.printLineError(errorMsg + stackTrace)
+          }
     }
   }
 
