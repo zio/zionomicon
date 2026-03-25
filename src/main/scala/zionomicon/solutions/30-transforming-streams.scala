@@ -168,12 +168,14 @@ package StreamsAdvancedOperations {
 
           if (cleanSet.contains(elem)) {
             // Element is a duplicate within the current time window
+            // false indicates we won't emit this element because it's a duplicate
             ((cleanWindow, cleanSet), (false, elem))
           } else {
             // New element within the window; add it to the state
             val updatedWindow =
               cleanWindow.enqueue(TimestampedElement(elem, now))
             val updatedSet = cleanSet + elem
+            // true indicates we will emit this element because it's not a duplicate
             ((updatedWindow, updatedSet), (true, elem))
           }
         }.collect { case (true, elem) => elem }
@@ -184,13 +186,14 @@ package StreamsAdvancedOperations {
     object Exercise4Example extends ZIOAppDefault {
 
       def run: ZIO[Any, Any, Unit] = {
-        val numbers = ZStream(1, 2, 2, 3, 3, 3, 4, 1, 5)
+        val numbers = ZStream(1, 2, 2, 2, 2, 3, 2, 4, 1).schedule(
+          Schedule.spaced(500.millis)
+        )
 
-        ZIO.scoped {
-          TimeWindowDeduplication
-            .slidingDeduplicateByTime[Int](1000)(numbers)
-            .foreach(n => Console.printLine(s"Deduplicated: $n"))
-        }
+        TimeWindowDeduplication
+          .slidingDeduplicateByTime[Int](3000)(numbers)
+          .debug("Deduplicated element")
+          .runDrain
       }
     }
   }
