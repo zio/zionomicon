@@ -1,6 +1,5 @@
 package zionomicon.solutions
 
-import zio._
 import zio.stream._
 
 package StreamsAdvancedOperations {
@@ -125,7 +124,6 @@ package StreamsAdvancedOperations {
   package SlidingTimeWindowDeduplication {
 
     import zio._
-    import java.time.Instant
 
     object TimeWindowDeduplication {
 
@@ -178,7 +176,6 @@ package StreamsAdvancedOperations {
   package GitHubRepositoriesPagination {
 
     import zio._
-    import zio.http.Client
 
     object GitHubClient {
 
