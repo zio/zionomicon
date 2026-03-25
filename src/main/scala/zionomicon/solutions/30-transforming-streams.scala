@@ -218,6 +218,7 @@ package StreamsAdvancedOperations {
     import zio._
     import zio.stream._
     import zio.json._
+    import java.net.http.{HttpClient, HttpRequest}
 
     object GitHubClient {
 
@@ -229,6 +230,8 @@ package StreamsAdvancedOperations {
           DeriveJsonDecoder.gen[Repository]
       }
 
+      private val httpClient = HttpClient.newHttpClient()
+
       private def fetchPage(
         org: String,
         page: Int
@@ -236,69 +239,19 @@ package StreamsAdvancedOperations {
         ZIO.attempt {
           val url =
             s"https://api.github.com/orgs/$org/repos?page=$page&per_page=30&sort=stars&order=desc"
-          try {
-            val connection = new java.net.URL(url).openConnection()
-            connection
-              .asInstanceOf[java.net.HttpURLConnection]
-              .setRequestProperty(
-                "User-Agent",
-                "Scala-ZIO-Client"
-              )
-            connection.setConnectTimeout(5000)
-            connection.setReadTimeout(10000)
-
-            val responseCode =
-              connection
-                .asInstanceOf[java.net.HttpURLConnection]
-                .getResponseCode()
-            if (responseCode != 200) {
-              throw new RuntimeException(
-                s"HTTP $responseCode: ${connection.asInstanceOf[java.net.HttpURLConnection].getResponseMessage()}"
-              )
-            }
-
-            val source = scala.io.Source.fromInputStream(
-              connection.getInputStream
+          val request =
+            HttpRequest.newBuilder(new java.net.URI(url)).GET().build()
+          val response = httpClient.send(
+            request,
+            java.net.http.HttpResponse.BodyHandlers.ofString()
+          )
+          response
+            .body()
+            .fromJson[List[Repository]]
+            .fold(
+              err => throw new RuntimeException(s"JSON decode error: $err"),
+              identity
             )
-            try {
-              val body = source.mkString
-              if (body.isEmpty) {
-                throw new RuntimeException(
-                  "Empty response body from GitHub API"
-                )
-              }
-              body
-                .fromJson[List[Repository]]
-                .fold(
-                  err =>
-                    throw new RuntimeException(
-                      s"JSON decode error: $err. Response: ${body.take(200)}"
-                    ),
-                  repos => repos
-                )
-            } finally source.close()
-          } catch {
-            case e: java.net.UnknownHostException =>
-              throw new RuntimeException(
-                s"DNS resolution failed for api.github.com. Check your network/proxy settings: ${e.getMessage}",
-                e
-              )
-            case e: java.net.ConnectException =>
-              throw new RuntimeException(
-                s"Failed to connect to api.github.com. Check proxy settings and network connectivity: ${e.getMessage}",
-                e
-              )
-            case e: javax.net.ssl.SSLException =>
-              throw new RuntimeException(
-                s"SSL/TLS certificate error: ${e.getMessage}. Try setting: -Dcom.sun.security.cert.checkRevocation=false",
-                e
-              )
-            case e: Throwable =>
-              throw new RuntimeException(
-                s"Error fetching from GitHub API: ${e.getClass.getSimpleName}: ${e.getMessage}",
-                e
-              )
-          }
         }
 
       def fetchRepositories(
