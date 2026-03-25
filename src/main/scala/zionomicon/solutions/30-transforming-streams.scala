@@ -282,14 +282,9 @@ package StreamsAdvancedOperations {
                 s"${idx + 1}. ${repo.name.padTo(30, ' ')} ⭐ ${repo.stargazers_count}"
               )
             }
-        } yield ()).catchAll { err =>
-          val errorMsg = s"Error fetching repositories: ${err.getMessage}"
-          val stackTrace =
-            if (err.getCause != null)
-              s"\nCause: ${err.getCause.getClass.getSimpleName}: ${err.getCause.getMessage}"
-            else ""
-          Console.printLineError(errorMsg + stackTrace)
-        }
+        } yield ()).catchAll(err =>
+          Console.printLineError(s"Error: ${err.getMessage}")
+        )
     }
   }
 
