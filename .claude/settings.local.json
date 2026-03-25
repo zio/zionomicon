@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sbtn --client 'clean')",
+      "Bash(sbtn --client 'compile')",
+      "Bash(grep -l \"ZStream\" /home/milad/sources/scala/zionomicon-solutions-new/src/main/scala/zionomicon/solutions/*.scala)",
+      "Bash(xargs -I {} sh -c 'head -20 {}')",
+      "Bash(grep -v \"^$\")",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"fix: Resolve compilation issues in 30-transforming-streams.scala:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}
