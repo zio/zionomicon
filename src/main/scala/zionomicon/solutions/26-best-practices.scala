@@ -183,39 +183,36 @@ package BestPractices {
         // Case 1: All fields invalid — all errors collected
         _ <- Console.printLine("\n--- Invalid input (all fields wrong) ---")
         _ <- RegistrationService
-          .register("ab", "short", "bad-email", 15)
-          .foldZIO(
-            errors =>
-              ZIO.foreach(errors.toList)(e =>
-                Console.printLine(s"  Error: ${formatError(e)}")
-              ),
-            form =>
-              Console.printLine(s"  Registered: $form")
-          )
+               .register("ab", "short", "bad-email", 15)
+               .foldZIO(
+                 errors =>
+                   ZIO.foreach(errors.toList)(e =>
+                     Console.printLine(s"  Error: ${formatError(e)}")
+                   ),
+                 form => Console.printLine(s"  Registered: $form")
+               )
         // Case 2: Valid input — success
         _ <- Console.printLine("\n--- Valid input ---")
         _ <- RegistrationService
-          .register("alice", "securepass", "alice@example.com", 25)
-          .foldZIO(
-            errors =>
-              ZIO.foreach(errors.toList)(e =>
-                Console.printLine(s"  Error: ${formatError(e)}")
-              ),
-            form =>
-              Console.printLine(s"  Registered: $form")
-          )
+               .register("alice", "securepass", "alice@example.com", 25)
+               .foldZIO(
+                 errors =>
+                   ZIO.foreach(errors.toList)(e =>
+                     Console.printLine(s"  Error: ${formatError(e)}")
+                   ),
+                 form => Console.printLine(s"  Registered: $form")
+               )
         // Case 3: Partial errors — only some fields invalid
         _ <- Console.printLine("\n--- Partial errors (username + age) ---")
         _ <- RegistrationService
-          .register("ab", "securepass", "bob@test.com", 16)
-          .foldZIO(
-            errors =>
-              ZIO.foreach(errors.toList)(e =>
-                Console.printLine(s"  Error: ${formatError(e)}")
-              ),
-            form =>
-              Console.printLine(s"  Registered: $form")
-          )
+               .register("ab", "securepass", "bob@test.com", 16)
+               .foldZIO(
+                 errors =>
+                   ZIO.foreach(errors.toList)(e =>
+                     Console.printLine(s"  Error: ${formatError(e)}")
+                   ),
+                 form => Console.printLine(s"  Registered: $form")
+               )
       } yield ()
     }
   }
@@ -342,20 +339,21 @@ package BestPractices {
         _ <- Console.printLine("=== Exercise 4: ZIO Prelude Validation ===")
         // Case 1: All fields invalid
         _ <- showResult(
-          "\n--- Invalid input (all fields wrong) ---",
-          RegistrationService.register("ab", "short", "bad-email", 15)
-        )
+               "\n--- Invalid input (all fields wrong) ---",
+               RegistrationService.register("ab", "short", "bad-email", 15)
+             )
         // Case 2: Valid input
         _ <- showResult(
-          "\n--- Valid input ---",
-          RegistrationService
-            .register("alice", "securepass", "alice@example.com", 25)
-        )
+               "\n--- Valid input ---",
+               RegistrationService
+                 .register("alice", "securepass", "alice@example.com", 25)
+             )
         // Case 3: Partial errors
-        _ <- showResult(
-          "\n--- Partial errors (username + age) ---",
-          RegistrationService.register("ab", "securepass", "bob@test.com", 16)
-        )
+        _ <-
+          showResult(
+            "\n--- Partial errors (username + age) ---",
+            RegistrationService.register("ab", "securepass", "bob@test.com", 16)
+          )
       } yield ()
     }
   }
