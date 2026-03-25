@@ -329,7 +329,7 @@ package StreamsAdvancedOperations {
             case View     => counts.copy(views = counts.views + 1)
             case Purchase => counts.copy(purchases = counts.purchases + 1)
           }
-        }.drop(1)
+        }.drop(1) // Drop the initial count of (0, 0, 0) since it doesn't correspond to any event
     }
 
     // --- Example Showcase ---
@@ -337,15 +337,8 @@ package StreamsAdvancedOperations {
     object Exercise6Example extends ZIOAppDefault {
 
       def run: ZIO[Any, Any, Unit] = {
-        val events = ZStream(
-          Click,
-          View,
-          Click,
-          Purchase,
-          View,
-          Click,
-          Purchase
-        )
+        val events =
+          ZStream(Click, View, Click, Purchase, View, Click, Purchase)
 
         ZIO.scoped {
           EventCounter
@@ -380,32 +373,23 @@ package StreamsAdvancedOperations {
       ): ZIO[Any, Nothing, Unit] =
         ZIO.scoped {
           for {
-            // Create three broadcasted streams from a single upstream producer
-            streams         <- stream.broadcast(3, 16)
-            evenStream       = streams(0)
-            oddStream        = streams(1)
-            multipliedStream = streams(2)
-            // Run all consumers in parallel using zipParRight for fan-out
-            _ <- evenStream
-                   .filter(_ % 2 == 0)
-                   .foreach(n => Console.printLine(s"Even consumer: $n"))
-                   .mapError(_ => ())
-                   .zipParRight(
-                     oddStream
-                       .filter(_ % 2 != 0)
-                       .foreach(n => Console.printLine(s"Odd consumer: $n"))
-                       .mapError(_ => ())
-                   )
-                   .zipParRight(
-                     multipliedStream
-                       .foreach(n =>
-                         Console.printLine(s"Multiplied consumer: ${n * 10}")
-                       )
-                       .mapError(_ => ())
-                   )
+            streams <- stream.broadcast(3, 16)
+            evenStream =
+              streams(0)
+                .filter(_ % 2 == 0)
+                .foreach(n => Console.printLine(s"Even consumer: $n"))
+            oddStream =
+              streams(1)
+                .filter(_ % 2 != 0)
+                .foreach(n => Console.printLine(s"Odd consumer: $n"))
+            multipliedStream =
+              streams(2)
+                .foreach(n =>
+                  Console.printLine(s"Multiplied consumer: ${n * 10}")
+                )
+            _ <- (evenStream <&> oddStream <&> multipliedStream).orDie
           } yield ()
         }
-          .catchAll(_ => ZIO.unit)
     }
 
     // --- Example Showcase ---
