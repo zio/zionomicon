@@ -137,46 +137,53 @@ package StreamsAdvancedOperations {
 
     object TimeWindowDeduplication {
 
-      case class TimestampedElement[A](value: A, timestamp: Long)
+      case class TimestampedElement[A](value: A, timestamp: zio.Duration)
 
       def slidingDeduplicateByTime[A](
-        windowDurationMs: Long
+        windowDuration: zio.Duration
       ): ZStream[Any, Nothing, A] => ZStream[Any, Nothing, A] =
-        _.mapAccum(
+        _.mapAccumZIO(
           (
             scala.collection.immutable.Queue.empty[TimestampedElement[A]],
             Set.empty[A]
           )
         ) { case ((window, currentSet), elem) =>
-          val now = java.lang.System.currentTimeMillis()
+          Clock.currentTime(java.util.concurrent.TimeUnit.MILLISECONDS).map {
+            nowMs =>
+              val now      = nowMs.milliseconds
+              val windowMs = windowDuration.toMillis
 
-          // Evict elements that are older than the window duration
-          @annotation.tailrec
-          def evictExpired(
-            q: scala.collection.immutable.Queue[TimestampedElement[A]],
-            s: Set[A]
-          ): (scala.collection.immutable.Queue[TimestampedElement[A]], Set[A]) =
-            q.headOption match {
-              case Some(TimestampedElement(value, ts))
-                  if now - ts > windowDurationMs =>
-                evictExpired(q.tail, s - value)
-              case _ =>
-                (q, s)
-            }
+              // Evict elements that are older than the window duration
+              @annotation.tailrec
+              def evictExpired(
+                q: scala.collection.immutable.Queue[TimestampedElement[A]],
+                s: Set[A]
+              ): (
+                scala.collection.immutable.Queue[TimestampedElement[A]],
+                Set[A]
+              ) =
+                q.headOption match {
+                  case Some(TimestampedElement(value, ts))
+                      if (nowMs - ts.toMillis) > windowMs =>
+                    evictExpired(q.tail, s - value)
+                  case _ =>
+                    (q, s)
+                }
 
-          val (cleanWindow, cleanSet) = evictExpired(window, currentSet)
+              val (cleanWindow, cleanSet) = evictExpired(window, currentSet)
 
-          if (cleanSet.contains(elem)) {
-            // Element is a duplicate within the current time window
-            // false indicates we won't emit this element because it's a duplicate
-            ((cleanWindow, cleanSet), (false, elem))
-          } else {
-            // New element within the window; add it to the state
-            val updatedWindow =
-              cleanWindow.enqueue(TimestampedElement(elem, now))
-            val updatedSet = cleanSet + elem
-            // true indicates we will emit this element because it's not a duplicate
-            ((updatedWindow, updatedSet), (true, elem))
+              if (cleanSet.contains(elem)) {
+                // Element is a duplicate within the current time window
+                // false indicates we won't emit this element because it's a duplicate
+                ((cleanWindow, cleanSet), (false, elem))
+              } else {
+                // New element within the window; add it to the state
+                val updatedWindow =
+                  cleanWindow.enqueue(TimestampedElement(elem, now))
+                val updatedSet = cleanSet + elem
+                // true indicates we will emit this element because it's not a duplicate
+                ((updatedWindow, updatedSet), (true, elem))
+              }
           }
         }.collect { case (true, elem) => elem }
     }
@@ -187,11 +194,11 @@ package StreamsAdvancedOperations {
 
       def run: ZIO[Any, Any, Unit] = {
         val numbers = ZStream(1, 2, 2, 2, 2, 3, 2, 4, 1).schedule(
-          Schedule.spaced(500.millis)
+          Schedule.spaced(500.milliseconds)
         )
 
         TimeWindowDeduplication
-          .slidingDeduplicateByTime[Int](3000)(numbers)
+          .slidingDeduplicateByTime[Int](3.seconds)(numbers)
           .debug("Deduplicated element")
           .runDrain
       }
