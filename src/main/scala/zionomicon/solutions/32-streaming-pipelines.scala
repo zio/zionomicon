@@ -459,6 +459,29 @@ package StreamingPipelines {
           sessionsToEmit: List[Session]
         )
 
+        // Helper: Convert incomplete SessionState to complete Session
+        def toSession(sessionState: SessionState): Session =
+          Session(
+            sessionId = sessionState.sessionId,
+            userId = sessionState.userId,
+            startTime = sessionState.events.head.timestamp,
+            endTime = sessionState.lastEventTime,
+            duration = java.time.Duration.between(
+              sessionState.events.head.timestamp,
+              sessionState.lastEventTime
+            ),
+            events = sessionState.events
+          )
+
+        // Helper: Create new session for a user
+        def newSession(userId: String, event: UserEvent, id: String): SessionState =
+          SessionState(
+            sessionId = id,
+            userId = userId,
+            events = List(event),
+            lastEventTime = event.timestamp
+          )
+
         def channel(
           state: ChannelState,
           sessionCounter: Long
@@ -482,38 +505,19 @@ package StreamingPipelines {
 
                     if (timeSinceLastEvent > gapThresholdMs) {
                       // Gap exceeded - session ended
-                      val completedSession = Session(
-                        sessionId = existingSession.sessionId,
-                        userId = existingSession.userId,
-                        startTime = existingSession.events.head.timestamp,
-                        endTime = existingSession.lastEventTime,
-                        duration = java.time.Duration.between(
-                          existingSession.events.head.timestamp,
-                          existingSession.lastEventTime
-                        ),
-                        events = existingSession.events
-                      )
-
                       newState =
                         newState.copy(sessionsToEmit =
-                          newState.sessionsToEmit :+ completedSession
+                          newState.sessionsToEmit :+ toSession(existingSession)
                         )
 
                       // Start a new session
                       counter += 1
                       newState.activeSessions + (userId ->
-                        SessionState(
-                          sessionId = s"session-${counter}",
-                          userId = userId,
-                          events = List(event),
-                          lastEventTime = event.timestamp
-                        ))
+                        newSession(userId, event, s"session-${counter}"))
                     } else {
                       // Continue session
                       newState.activeSessions + (userId ->
-                        SessionState(
-                          sessionId = existingSession.sessionId,
-                          userId = userId,
+                        existingSession.copy(
                           events = existingSession.events :+ event,
                           lastEventTime = event.timestamp
                         ))
@@ -523,12 +527,7 @@ package StreamingPipelines {
                     // Start new session
                     counter += 1
                     newState.activeSessions + (userId ->
-                      SessionState(
-                        sessionId = s"session-${counter}",
-                        userId = userId,
-                        events = List(event),
-                        lastEventTime = event.timestamp
-                      ))
+                      newSession(userId, event, s"session-${counter}"))
                 }
 
                 newState = newState.copy(activeSessions = updatedSessions)
@@ -545,23 +544,8 @@ package StreamingPipelines {
             },
             err => {
               // On error, emit any buffered completed sessions and remaining active sessions
-              val completedSessions = state.sessionsToEmit
-
-              val remainingSessions = state.activeSessions.values.map { s =>
-                Session(
-                  sessionId = s.sessionId,
-                  userId = s.userId,
-                  startTime = s.events.head.timestamp,
-                  endTime = s.lastEventTime,
-                  duration = java.time.Duration.between(
-                    s.events.head.timestamp,
-                    s.lastEventTime
-                  ),
-                  events = s.events
-                )
-              }.toList
-
-              val allSessions = completedSessions ++ remainingSessions
+              val allSessions = state.sessionsToEmit ++
+                state.activeSessions.values.map(toSession).toList
 
               if (allSessions.nonEmpty) {
                 ZChannel.write(Chunk.fromIterable(allSessions)) *>
@@ -572,19 +556,7 @@ package StreamingPipelines {
             },
             done => {
               // Emit any remaining active sessions as completed
-              val remainingSessions = state.activeSessions.values.map { s =>
-                Session(
-                  sessionId = s.sessionId,
-                  userId = s.userId,
-                  startTime = s.events.head.timestamp,
-                  endTime = s.lastEventTime,
-                  duration = java.time.Duration.between(
-                    s.events.head.timestamp,
-                    s.lastEventTime
-                  ),
-                  events = s.events
-                )
-              }.toList
+              val remainingSessions = state.activeSessions.values.map(toSession).toList
 
               if (remainingSessions.nonEmpty) {
                 ZChannel.write(Chunk.fromIterable(remainingSessions)) *>
