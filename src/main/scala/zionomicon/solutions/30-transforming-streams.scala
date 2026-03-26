@@ -1,7 +1,5 @@
 package zionomicon.solutions
 
-import zio.stream._
-
 package StreamsAdvancedOperations {
 
   /**
@@ -11,6 +9,7 @@ package StreamsAdvancedOperations {
   package FibonacciStream {
 
     import zio._
+    import zio.stream._
 
     object FibonacciSequence {
 
@@ -40,6 +39,7 @@ package StreamsAdvancedOperations {
   package RunningAverage {
 
     import zio._
+    import zio.stream._
 
     object RunningAverageStream {
 
@@ -49,7 +49,7 @@ package StreamsAdvancedOperations {
         Double
       ] =
         _.mapAccum((0L, 0)) { case ((sum, count), elem) =>
-          val newSum   = sum + elem.toLong
+          val newSum   = sum + elem
           val newCount = count + 1
           val avg      = newSum.toDouble / newCount
           ((newSum, newCount), avg)
@@ -79,24 +79,33 @@ package StreamsAdvancedOperations {
   package MovingAverage {
 
     import zio._
+    import zio.stream._
     import scala.collection.immutable.Queue
 
     object MovingAverageStream {
 
       def movingAverage(
         windowSize: Int
-      ): ZStream[Any, Nothing, Int] => ZStream[Any, Nothing, Double] =
-        _.scan(Queue.empty[Int]) { case (queue, elem) =>
-          val newQueue = if (queue.size < windowSize) {
-            queue.enqueue(elem)
-          } else {
-            queue.dequeue._2.enqueue(elem)
-          }
-          newQueue
-        }.collect {
-          case q if q.nonEmpty =>
-            q.sum.toDouble / q.size
-        }
+      ): ZStream[Any, Nothing, Int] => ZStream[Any, Nothing, Double] = {
+        require(
+          windowSize > 0,
+          s"windowSize must be positive, but was $windowSize"
+        )
+        (stream: ZStream[Any, Nothing, Int]) =>
+          stream
+            .scan(Queue.empty[Int]) { case (queue, elem) =>
+              val newQueue = if (queue.size < windowSize) {
+                queue.enqueue(elem)
+              } else {
+                queue.dequeue._2.enqueue(elem)
+              }
+              newQueue
+            }
+            .collect {
+              case q if q.nonEmpty =>
+                q.sum.toDouble / q.size
+            }
+      }
     }
 
     // --- Example Showcase ---
@@ -124,29 +133,59 @@ package StreamsAdvancedOperations {
   package SlidingTimeWindowDeduplication {
 
     import zio._
+    import zio.stream._
 
     object TimeWindowDeduplication {
 
-      case class TimestampedElement[A](value: A, timestamp: Long)
+      case class TimestampedElement[A](value: A, timestamp: zio.Duration)
 
       def slidingDeduplicateByTime[A](
-        windowDurationMs: Long
+        windowDuration: zio.Duration
       ): ZStream[Any, Nothing, A] => ZStream[Any, Nothing, A] =
-        _.mapAccum(
-          (scala.collection.immutable.Queue.empty[A], 0L)
-        ) { case ((window, lastCleanup), elem) =>
-          val now = java.lang.System.currentTimeMillis()
-          val cleanWindow =
-            if (now - lastCleanup > windowDurationMs) {
-              scala.collection.immutable.Queue(elem)
-            } else {
-              window.enqueue(elem)
-            }
+        _.mapAccumZIO(
+          (
+            scala.collection.immutable.Queue.empty[TimestampedElement[A]],
+            Set.empty[A]
+          )
+        ) { case ((window, currentSet), elem) =>
+          Clock.currentTime(java.util.concurrent.TimeUnit.MILLISECONDS).map {
+            nowMs =>
+              val now      = nowMs.milliseconds
+              val windowMs = windowDuration.toMillis
 
-          val isDuplicate = window.contains(elem)
-          val output      = if (!isDuplicate) Some(elem) else None
-          ((cleanWindow, now), output)
-        }.collect { case Some(elem) => elem }
+              // Evict elements that are older than the window duration
+              @annotation.tailrec
+              def evictExpired(
+                q: scala.collection.immutable.Queue[TimestampedElement[A]],
+                s: Set[A]
+              ): (
+                scala.collection.immutable.Queue[TimestampedElement[A]],
+                Set[A]
+              ) =
+                q.headOption match {
+                  case Some(TimestampedElement(value, ts))
+                      if (nowMs - ts.toMillis) > windowMs =>
+                    evictExpired(q.tail, s - value)
+                  case _ =>
+                    (q, s)
+                }
+
+              val (cleanWindow, cleanSet) = evictExpired(window, currentSet)
+
+              if (cleanSet.contains(elem)) {
+                // Element is a duplicate within the current time window
+                // false indicates we won't emit this element because it's a duplicate
+                ((cleanWindow, cleanSet), (false, elem))
+              } else {
+                // New element within the window; add it to the state
+                val updatedWindow =
+                  cleanWindow.enqueue(TimestampedElement(elem, now))
+                val updatedSet = cleanSet + elem
+                // true indicates we will emit this element because it's not a duplicate
+                ((updatedWindow, updatedSet), (true, elem))
+              }
+          }
+        }.collect { case (true, elem) => elem }
     }
 
     // --- Example Showcase ---
@@ -154,13 +193,14 @@ package StreamsAdvancedOperations {
     object Exercise4Example extends ZIOAppDefault {
 
       def run: ZIO[Any, Any, Unit] = {
-        val numbers = ZStream(1, 2, 2, 3, 3, 3, 4, 1, 5)
+        val numbers = ZStream(1, 2, 2, 2, 2, 3, 2, 4, 1).schedule(
+          Schedule.spaced(500.milliseconds)
+        )
 
-        ZIO.scoped {
-          TimeWindowDeduplication
-            .slidingDeduplicateByTime[Int](1000)(numbers)
-            .foreach(n => Console.printLine(s"Deduplicated: $n"))
-        }
+        TimeWindowDeduplication
+          .slidingDeduplicateByTime[Int](3.seconds)(numbers)
+          .debug("Deduplicated element")
+          .runDrain
       }
     }
   }
@@ -176,24 +216,51 @@ package StreamsAdvancedOperations {
   package GitHubRepositoriesPagination {
 
     import zio._
+    import zio.stream._
+    import zio.json._
 
     object GitHubClient {
 
-      // Simple case class for a repository
-      case class Repository(name: String, stars: Int)
+      // Case classes for JSON decoding
+      case class Repository(name: String, stargazers_count: Int)
 
-      // Note: In a real application, you would use a JSON library like zio-json
-      // to parse the GitHub API response. This is a simplified version.
-
-      def fetchRepositories: ZStream[Any, Nothing, Repository] = {
-        val mockRepos = List(
-          Repository("zio", 4000),
-          Repository("zio-http", 2000),
-          Repository("zio-prelude", 1500),
-          Repository("zio-query", 1200)
-        )
-        ZStream.fromIterable(mockRepos)
+      object Repository {
+        implicit val decoder: JsonDecoder[Repository] =
+          DeriveJsonDecoder.gen[Repository]
       }
+
+      private def fetchPage(
+        org: String,
+        page: Int
+      ): ZIO[Any, Throwable, List[Repository]] =
+        ZIO.attempt {
+          val url =
+            s"https://api.github.com/orgs/$org/repos?page=$page&per_page=30&sort=stars&order=desc"
+          val source = scala.io.Source.fromURL(url)
+          try {
+            val body = source.mkString
+            body
+              .fromJson[List[Repository]]
+              .fold(
+                err => throw new RuntimeException(s"JSON decode error: $err"),
+                identity
+              )
+          } finally source.close()
+        }
+
+      def fetchRepositories(
+        org: String = "zio"
+      ): ZStream[Any, Throwable, Repository] =
+        ZStream
+          .paginateZIO(1) { page =>
+            fetchPage(org, page).map { repos =>
+              val nextPage =
+                if (repos.isEmpty || repos.size < 30) None
+                else Some(page + 1)
+              (repos, nextPage)
+            }
+          }
+          .flatMap(repos => ZStream(repos: _*))
     }
 
     // --- Example Showcase ---
@@ -201,13 +268,23 @@ package StreamsAdvancedOperations {
     object Exercise5Example extends ZIOAppDefault {
 
       def run: ZIO[Any, Any, Unit] =
-        ZIO.scoped {
-          GitHubClient.fetchRepositories
-            .take(10)
-            .foreach(repo =>
-              Console.printLine(s"Repository: ${repo.name} (⭐ ${repo.stars})")
-            )
-        }
+        (for {
+          // Collect repositories from the stream and sort by stars
+          repos <- GitHubClient
+                     .fetchRepositories()
+                     .runCollect
+          sorted = repos.sortBy(_.stargazers_count)(Ordering[Int].reverse)
+          topTen = sorted.take(10)
+          _     <- Console.printLine("=== Top 10 ZIO Repositories by Stars ===")
+          _ <-
+            ZIO.foreach(topTen.zipWithIndex) { case (repo, idx) =>
+              Console.printLine(
+                s"${idx + 1}. ${repo.name.padTo(30, ' ')} ⭐ ${repo.stargazers_count}"
+              )
+            }
+        } yield ()).catchAll(err =>
+          Console.printLineError(s"Error: ${err.getMessage}")
+        )
     }
   }
 
@@ -226,6 +303,7 @@ package StreamsAdvancedOperations {
   package UserEventCounting {
 
     import zio._
+    import zio.stream._
 
     sealed trait UserEvent extends Product with Serializable
     case object Click      extends UserEvent
@@ -251,7 +329,7 @@ package StreamsAdvancedOperations {
             case View     => counts.copy(views = counts.views + 1)
             case Purchase => counts.copy(purchases = counts.purchases + 1)
           }
-        }
+        }.drop(1) // Drop the initial count of (0, 0, 0) since it doesn't correspond to any event
     }
 
     // --- Example Showcase ---
@@ -259,15 +337,8 @@ package StreamsAdvancedOperations {
     object Exercise6Example extends ZIOAppDefault {
 
       def run: ZIO[Any, Any, Unit] = {
-        val events = ZStream(
-          Click,
-          View,
-          Click,
-          Purchase,
-          View,
-          Click,
-          Purchase
-        )
+        val events =
+          ZStream(Click, View, Click, Purchase, View, Click, Purchase)
 
         ZIO.scoped {
           EventCounter
@@ -293,31 +364,32 @@ package StreamsAdvancedOperations {
   package StreamBroadcasting {
 
     import zio._
+    import zio.stream._
 
     object StreamBroadcaster {
 
       def broadcastStream(
         stream: ZStream[Any, Nothing, Int]
-      ): ZIO[Any, Throwable, Unit] =
-        for {
-          evenFiber <- stream
-                         .filter(_ % 2 == 0)
-                         .foreach(n => Console.printLine(s"Even consumer: $n"))
-                         .fork
-          oddFiber <- stream
-                        .filter(_ % 2 != 0)
-                        .foreach(n => Console.printLine(s"Odd consumer: $n"))
-                        .fork
-          multipliedFiber <-
-            stream
-              .foreach(n =>
-                Console.printLine(s"Multiplied consumer: ${n * 10}")
-              )
-              .fork
-          _ <- evenFiber.join
-          _ <- oddFiber.join
-          _ <- multipliedFiber.join
-        } yield ()
+      ): ZIO[Any, Nothing, Unit] =
+        ZIO.scoped {
+          for {
+            streams <- stream.broadcast(3, 16)
+            evenStream =
+              streams(0)
+                .filter(_ % 2 == 0)
+                .foreach(n => Console.printLine(s"Even consumer: $n"))
+            oddStream =
+              streams(1)
+                .filter(_ % 2 != 0)
+                .foreach(n => Console.printLine(s"Odd consumer: $n"))
+            multipliedStream =
+              streams(2)
+                .foreach(n =>
+                  Console.printLine(s"Multiplied consumer: ${n * 10}")
+                )
+            _ <- (evenStream <&> oddStream <&> multipliedStream).orDie
+          } yield ()
+        }
     }
 
     // --- Example Showcase ---
