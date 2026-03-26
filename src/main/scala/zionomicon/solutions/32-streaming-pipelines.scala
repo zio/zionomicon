@@ -616,49 +616,59 @@ package StreamingPipelines {
         _ <- Console.printLine(
                "Creating sessions from user events grouped by inactivity"
              )
+        _ <- Console.printLine(
+               "Timeline: user-1@t=0ms, user-1@t=500ms, user-1@t=1000ms, gap=4s, user-1@t=5000ms, etc.\n"
+             )
 
-        now = Instant.now()
+        _ <- {
+          val baseTime = Instant.now()
+          val events = ZStream(
+            UserEvent("user-1", baseTime),
+            UserEvent("user-1", baseTime.plusMillis(500)),
+            UserEvent("user-1", baseTime.plusMillis(1000)),
+            UserEvent("user-1", baseTime.plusSeconds(5)), // New session (gap > 3s)
+            UserEvent("user-2", baseTime.plusMillis(200)),
+            UserEvent("user-2", baseTime.plusMillis(2000)),
+            UserEvent("user-1", baseTime.plusSeconds(6))
+          )
 
-        events = ZStream(
-          UserEvent("user-1", now),
-          UserEvent("user-1", now.plusMillis(500)),
-          UserEvent("user-1", now.plusMillis(1000)),
-          UserEvent("user-1", now.plusSeconds(5)), // New session (gap > 3s)
-          UserEvent("user-2", now.plusMillis(200)),
-          UserEvent("user-2", now.plusMillis(2000)),
-          UserEvent("user-1", now.plusSeconds(6))
-        )
-
-        _ <- events
-               .via(Solution.sessionize(3.seconds))
-               .foreach { session =>
-                 Console.printLine(
-                   s"  Session: ${session.sessionId} | User: ${session.userId} | Events: ${session.events.length}"
-                 )
-               }
+          events
+            .via(Solution.sessionize(3.seconds))
+            .foreach { session =>
+              Console.printLine(
+                s"  Session: ${session.sessionId} | User: ${session.userId} | Events: ${session.events.length} | Duration: ${session.duration.toMillis}ms"
+              )
+            }
+        }
 
         // Example 2: Multiple concurrent users
         _ <- Console.printLine(
                "\n--- Example 2: Multiple Concurrent Users ---"
              )
+        _ <- Console.printLine(
+               "Gap threshold: 2 seconds. Track alice and bob independently.\n"
+             )
 
-        multiUserEvents = ZStream(
-          UserEvent("alice", now),
-          UserEvent("bob", now.plusMillis(100)),
-          UserEvent("alice", now.plusMillis(500)),
-          UserEvent("bob", now.plusMillis(600)),
-          UserEvent("alice", now.plusMillis(1000)),
-          UserEvent("alice", now.plusSeconds(5)), // Alice new session
-          UserEvent("bob", now.plusSeconds(4))
-        )
+        _ <- {
+          val baseTime = Instant.now()
+          val multiUserEvents = ZStream(
+            UserEvent("alice", baseTime),
+            UserEvent("bob", baseTime.plusMillis(100)),
+            UserEvent("alice", baseTime.plusMillis(500)),
+            UserEvent("bob", baseTime.plusMillis(600)),
+            UserEvent("alice", baseTime.plusMillis(1000)),
+            UserEvent("alice", baseTime.plusSeconds(5)), // Alice new session (gap > 2s)
+            UserEvent("bob", baseTime.plusSeconds(4))    // Bob continues (gap < 2s)
+          )
 
-        _ <- multiUserEvents
-               .via(Solution.sessionize(2.seconds))
-               .foreach { session =>
-                 Console.printLine(
-                   s"  ${session.sessionId} (${session.userId}): ${session.events.length} events, duration: ${session.duration.toMillis}ms"
-                 )
-               }
+          multiUserEvents
+            .via(Solution.sessionize(2.seconds))
+            .foreach { session =>
+              Console.printLine(
+                s"  ${session.sessionId} (${session.userId}): ${session.events.length} events, duration: ${session.duration.toMillis}ms"
+              )
+            }
+        }
       } yield ()
     }
 
