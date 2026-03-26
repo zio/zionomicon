@@ -178,20 +178,45 @@ package StreamingPipelines {
 
   /**
    *   2. Design a pipeline that outputs the minimum and maximum values from
-   *      a continuous data stream within a fixed time window (e.g., every minute).
+   *      a continuous data stream within a fixed time window.
+   *
+   *      Option A: Tumbling Windows (non-overlapping)
+   *        - Each window is separate and non-overlapping
+   *        - Window 1: [0-500ms), Window 2: [500-1000ms), etc.
+   *        - Example: [1,2,3,4,5,6,7] → (1,3), (4,6), (7,7)
+   *        - Use case: Hourly/daily aggregations, clear boundaries
+   *
+   *      Option B: Sliding Windows (overlapping)
+   *        - Windows overlap continuously as time progresses
+   *        - Emit every interval with elements from last windowSize duration
+   *        - Example: [1,2,3,4,5,6,7] → (1,3), (2,4), (3,5), (4,6), (5,7)
+   *        - Use case: Real-time monitoring, continuous dashboards
    *
    * {{{
-   * def minMaxWindow[A: Ordering](
+   * def minMaxWindowTumbling[A: Ordering](
    *   windowSize: Duration
+   * ): ZPipeline[Any, Nothing, A, (A, A)] =
+   *   ???
+   *
+   * def minMaxWindowSliding[A: Ordering](
+   *   windowSize: Duration,
+   *   emitInterval: Duration
    * ): ZPipeline[Any, Nothing, A, (A, A)] =
    *   ???
    * }}}
    */
   package MinMaxWindow {
 
+    case class TimestampedValue[A](timestamp: Long, value: A)
+
     object Solution {
 
-      def minMaxWindow[A: Ordering](
+      /**
+       * Option A: Tumbling (non-overlapping) windows
+       * Windows are separate: [0-500), [500-1000), [1000-1500)
+       * Clear buffer at each window boundary
+       */
+      def minMaxWindowTumbling[A: Ordering](
         windowSize: Duration
       ): ZPipeline[Any, Nothing, A, (A, A)] = {
 
@@ -228,6 +253,65 @@ package StreamingPipelines {
         ZPipeline.fromChannel(channel(Vector.empty, java.lang.System.currentTimeMillis()))
       }
 
+      /**
+       * Option B: Sliding (overlapping) windows
+       * Windows overlap: [0-500), [200-700), [400-900), etc.
+       * Keep all elements with timestamps, filter aged-out elements
+       */
+      def minMaxWindowSliding[A: Ordering](
+        windowSize: Duration,
+        emitInterval: Duration
+      ): ZPipeline[Any, Nothing, A, (A, A)] = {
+
+        def channel(
+          buffer: Vector[TimestampedValue[A]],
+          lastEmitTime: Long
+        ): ZChannel[Any, ZNothing, Chunk[A], Any, ZNothing, Chunk[(A, A)], Any] =
+          ZChannel.readWithCause(
+            elem => {
+              // Add new elements with timestamps
+              val currentTime = java.lang.System.currentTimeMillis()
+              val timestampedElems = elem.map(TimestampedValue(currentTime, _))
+              val newBuffer = buffer ++ timestampedElems
+
+              // Remove elements older than the window
+              val windowStart = currentTime - windowSize.toMillis
+              val filteredBuffer = newBuffer.filter(_.timestamp >= windowStart)
+
+              if (currentTime - lastEmitTime >= emitInterval.toMillis && filteredBuffer.nonEmpty) {
+                val min = filteredBuffer.map(_.value).min
+                val max = filteredBuffer.map(_.value).max
+                ZChannel.write(Chunk((min, max))) *>
+                  channel(filteredBuffer, currentTime)
+              } else {
+                channel(filteredBuffer, lastEmitTime)
+              }
+            },
+            err => ZChannel.failCause(err),
+            done => {
+              // Emit final window if buffer is not empty
+              val currentTime = java.lang.System.currentTimeMillis()
+              val windowStart = currentTime - windowSize.toMillis
+              val filteredBuffer = buffer.filter(_.timestamp >= windowStart)
+
+              if (filteredBuffer.nonEmpty) {
+                val min = filteredBuffer.map(_.value).min
+                val max = filteredBuffer.map(_.value).max
+                ZChannel.write(Chunk((min, max))) *> ZChannel.succeed(done)
+              } else {
+                ZChannel.succeed(done)
+              }
+            }
+          )
+
+        ZPipeline.fromChannel(channel(Vector.empty, java.lang.System.currentTimeMillis()))
+      }
+
+      // Alias for backward compatibility
+      def minMaxWindow[A: Ordering](
+        windowSize: Duration
+      ): ZPipeline[Any, Nothing, A, (A, A)] = minMaxWindowTumbling(windowSize)
+
     }
 
     // --- Example Showcase ---
@@ -237,30 +321,80 @@ package StreamingPipelines {
       def run: ZIO[Any, Any, Unit] = for {
         _ <- Console.printLine("=== Exercise 2: Min-Max Window Pipeline ===")
 
-        // Example 1: Numeric data with time windows
+        // Example 1A: Tumbling (non-overlapping) windows
         _ <- Console.printLine(
-               "\n--- Example 1: Numeric Min-Max in 500ms Windows ---"
+               "\n--- Option A: Tumbling Windows (500ms) ---"
              )
         _ <- Console.printLine(
-               "Stream of integers arriving over time, computing min/max every 500ms"
+               "Non-overlapping windows: [0-500), [500-1000), etc."
+             )
+        _ <- Console.printLine(
+               "Stream: [5, 2, 8, 1, 9, 3, 7] at 100ms intervals\n"
              )
 
         _ <- ZStream(5, 2, 8, 1, 9, 3, 7)
                .schedule(Schedule.spaced(100.millis))
-               .via(Solution.minMaxWindow[Int](500.millis))
-               .foreach(minMax =>
-                 Console.printLine(s"  Window result: min=${minMax._1}, max=${minMax._2}")
-               )
-
-        // Example 2: Double values
-        _ <- Console.printLine("\n--- Example 2: Double Values Min-Max ---")
-
-        _ <- ZStream(1.5, 2.3, 0.8, 4.2, 1.1)
-               .schedule(Schedule.spaced(80.millis))
-               .via(Solution.minMaxWindow[Double](400.millis))
+               .via(Solution.minMaxWindowTumbling[Int](500.millis))
                .foreach(minMax =>
                  Console.printLine(
-                   s"  Window result: min=${minMax._1}, max=${minMax._2}"
+                   s"  Window: min=${minMax._1}, max=${minMax._2}"
+                 )
+               )
+
+        // Example 1B: Sliding (overlapping) windows
+        _ <- Console.printLine(
+               "\n--- Option B: Sliding Windows (500ms window, emit every 200ms) ---"
+             )
+        _ <- Console.printLine(
+               "Overlapping windows: keeps recent 500ms of data"
+             )
+        _ <- Console.printLine(
+               "Stream: [5, 2, 8, 1, 9, 3, 7] at 100ms intervals\n"
+             )
+
+        _ <- ZStream(5, 2, 8, 1, 9, 3, 7)
+               .schedule(Schedule.spaced(100.millis))
+               .via(Solution.minMaxWindowSliding[Int](500.millis, 200.millis))
+               .foreach(minMax =>
+                 Console.printLine(
+                   s"  Window: min=${minMax._1}, max=${minMax._2}"
+                 )
+               )
+
+        // Example 2: Comparing both with simple sequence
+        _ <- Console.printLine(
+               "\n--- Comparison: Both on [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] ---"
+             )
+        _ <- Console.printLine("Window: 400ms, Elements: 100ms apart\n")
+
+        _ <- Console.printLine("Tumbling (clear on boundary):")
+        _ <- ZStream(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+               .schedule(Schedule.spaced(100.millis))
+               .via(Solution.minMaxWindowTumbling[Int](400.millis))
+               .foreach(minMax =>
+                 Console.printLine(s"  (${minMax._1}, ${minMax._2})")
+               )
+
+        _ <- Console.printLine("\nSliding (keep recent 400ms, emit every 150ms):")
+        _ <- ZStream(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+               .schedule(Schedule.spaced(100.millis))
+               .via(Solution.minMaxWindowSliding[Int](400.millis, 150.millis))
+               .foreach(minMax =>
+                 Console.printLine(s"  (${minMax._1}, ${minMax._2})")
+               )
+
+        // Example 3: Real-world use case - temperature monitoring
+        _ <- Console.printLine(
+               "\n--- Use Case: Temperature Monitoring (simulated) ---"
+             )
+        _ <- Console.printLine("Tumbling: Hourly temperature ranges\n")
+
+        _ <- ZStream(22, 21, 23, 24, 25, 23, 22, 21, 20, 19)
+               .schedule(Schedule.spaced(50.millis)) // Simulating 6-min intervals
+               .via(Solution.minMaxWindowTumbling[Int](300.millis)) // 300ms = simulated hour
+               .foreach(minMax =>
+                 Console.printLine(
+                   s"  Hourly range: ${minMax._1}°C - ${minMax._2}°C"
                  )
                )
       } yield ()
