@@ -9,7 +9,9 @@
       "Bash(cat:*)",
       "Bash(mkdir -p ~/my-learning-notes)",
       "Bash(cp /tmp/key-insights-zio-pipelines.md ~/my-learning-notes/)",
-      "Read(//home/milad/my-learning-notes/**)"
+      "Read(//home/milad/my-learning-notes/**)",
+      "Bash(/tmp/sessionize_trace.txt:*)",
+      "Bash(/tmp/code_review_summary.txt:*)"
     ]
   }
 }

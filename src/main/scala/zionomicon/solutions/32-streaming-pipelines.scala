@@ -250,7 +250,7 @@ package StreamingPipelines {
             }
           )
 
-        ZPipeline.fromChannel(channel(Vector.empty, java.lang.System.currentTimeMillis()))
+        ZPipeline.fromChannel(channel(Vector.empty, Long.MinValue))
       }
 
       /**
@@ -304,13 +304,8 @@ package StreamingPipelines {
             }
           )
 
-        ZPipeline.fromChannel(channel(Vector.empty, java.lang.System.currentTimeMillis()))
+        ZPipeline.fromChannel(channel(Vector.empty, Long.MinValue))
       }
-
-      // Alias for backward compatibility
-      def minMaxWindow[A: Ordering](
-        windowSize: Duration
-      ): ZPipeline[Any, Nothing, A, (A, A)] = minMaxWindowTumbling(windowSize)
 
     }
 
@@ -548,7 +543,33 @@ package StreamingPipelines {
                 channel(newState, counter)
               }
             },
-            err => ZChannel.failCause(err),
+            err => {
+              // On error, emit any buffered completed sessions and remaining active sessions
+              val completedSessions = state.sessionsToEmit
+
+              val remainingSessions = state.activeSessions.values.map { s =>
+                Session(
+                  sessionId = s.sessionId,
+                  userId = s.userId,
+                  startTime = s.events.head.timestamp,
+                  endTime = s.lastEventTime,
+                  duration = java.time.Duration.between(
+                    s.events.head.timestamp,
+                    s.lastEventTime
+                  ),
+                  events = s.events
+                )
+              }.toList
+
+              val allSessions = completedSessions ++ remainingSessions
+
+              if (allSessions.nonEmpty) {
+                ZChannel.write(Chunk.fromIterable(allSessions)) *>
+                  ZChannel.failCause(err)
+              } else {
+                ZChannel.failCause(err)
+              }
+            },
             done => {
               // Emit any remaining active sessions as completed
               val remainingSessions = state.activeSessions.values.map { s =>
