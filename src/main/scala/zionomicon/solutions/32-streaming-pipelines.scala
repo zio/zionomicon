@@ -23,15 +23,17 @@ package StreamingPipelines {
 
       /**
        * Option A: Overlapping pairs - each element pairs with the next one
-       * Example: 1,2,3,4 → (1,2), (2,3), (3,4)
-       * Useful for: detecting changes/trends between consecutive elements
+       * Example: 1,2,3,4 → (1,2), (2,3), (3,4) Useful for: detecting
+       * changes/trends between consecutive elements
        */
       def pairOverlapping[A]: ZPipeline[Any, Nothing, A, (A, A)] = {
 
-        def channel(previous: Option[A]): ZChannel[Any, ZNothing, Chunk[A], Any, ZNothing, Chunk[(A, A)], Any] =
+        def channel(previous: Option[A]): ZChannel[Any, ZNothing, Chunk[
+          A
+        ], Any, ZNothing, Chunk[(A, A)], Any] =
           ZChannel.readWithCause(
             elem => {
-              val pairs = scala.collection.mutable.ListBuffer.empty[(A, A)]
+              val pairs       = scala.collection.mutable.ListBuffer.empty[(A, A)]
               var currentPrev = previous
 
               elem.foreach { current =>
@@ -42,7 +44,9 @@ package StreamingPipelines {
               }
 
               if (pairs.nonEmpty)
-                ZChannel.write(Chunk.fromIterable(pairs)) *> channel(currentPrev)
+                ZChannel.write(Chunk.fromIterable(pairs)) *> channel(
+                  currentPrev
+                )
               else
                 channel(currentPrev)
             },
@@ -54,16 +58,18 @@ package StreamingPipelines {
       }
 
       /**
-       * Option B: Non-overlapping pairs - consecutive elements are grouped into disjoint pairs
-       * Example: 1,2,3,4 → (1,2), (3,4)
-       * Useful for: batch processing, fixed-size chunking
+       * Option B: Non-overlapping pairs - consecutive elements are grouped into
+       * disjoint pairs Example: 1,2,3,4 → (1,2), (3,4) Useful for: batch
+       * processing, fixed-size chunking
        */
       def pairNonOverlapping[A]: ZPipeline[Any, Nothing, A, (A, A)] = {
 
-        def channel(pending: Option[A]): ZChannel[Any, ZNothing, Chunk[A], Any, ZNothing, Chunk[(A, A)], Any] =
+        def channel(pending: Option[A]): ZChannel[Any, ZNothing, Chunk[
+          A
+        ], Any, ZNothing, Chunk[(A, A)], Any] =
           ZChannel.readWithCause(
             elem => {
-              val pairs = scala.collection.mutable.ListBuffer.empty[(A, A)]
+              val pairs   = scala.collection.mutable.ListBuffer.empty[(A, A)]
               var current = pending
 
               elem.foreach { newElem =>
@@ -110,25 +116,33 @@ package StreamingPipelines {
 
         // Example 1A: Overlapping pairs
         _ <- Console.printLine("\n--- Option A: Overlapping Pairs ---")
-        _ <- Console.printLine(
-               "Each element pairs with the next: 1,2,3,4,5 → (1,2), (2,3), (3,4), (4,5)"
-             )
-        _ <- Console.printLine("Use case: Detecting changes/trends between consecutive elements\n")
+        _ <-
+          Console.printLine(
+            "Each element pairs with the next: 1,2,3,4,5 → (1,2), (2,3), (3,4), (4,5)"
+          )
+        _ <-
+          Console.printLine(
+            "Use case: Detecting changes/trends between consecutive elements\n"
+          )
 
-        _ <- ZStream(1, 2, 3, 4, 5)
-               .via(Solution.pairOverlapping[Int])
-               .foreach(pair => Console.printLine(s"  ${pair._1} -> ${pair._2}"))
+        _ <-
+          ZStream(1, 2, 3, 4, 5)
+            .via(Solution.pairOverlapping[Int])
+            .foreach(pair => Console.printLine(s"  ${pair._1} -> ${pair._2}"))
 
         // Example 1B: Non-overlapping pairs
         _ <- Console.printLine("\n--- Option B: Non-Overlapping Pairs ---")
-        _ <- Console.printLine(
-               "Disjoint pairs: 1,2,3,4,5 → (1,2), (3,4) [5 discarded, unpaired]"
-             )
-        _ <- Console.printLine("Use case: Batch processing, fixed-size chunking\n")
+        _ <-
+          Console.printLine(
+            "Disjoint pairs: 1,2,3,4,5 → (1,2), (3,4) [5 discarded, unpaired]"
+          )
+        _ <-
+          Console.printLine("Use case: Batch processing, fixed-size chunking\n")
 
-        _ <- ZStream(1, 2, 3, 4, 5)
-               .via(Solution.pairNonOverlapping[Int])
-               .foreach(pair => Console.printLine(s"  (${pair._1}, ${pair._2})"))
+        _ <-
+          ZStream(1, 2, 3, 4, 5)
+            .via(Solution.pairNonOverlapping[Int])
+            .foreach(pair => Console.printLine(s"  (${pair._1}, ${pair._2})"))
 
         // Example 2: String pairing with overlapping
         _ <- Console.printLine("\n--- Example: String Overlapping Pairing ---")
@@ -136,11 +150,10 @@ package StreamingPipelines {
                "Characters: a,b,c,d,e\n"
              )
 
-        _ <- ZStream("a", "b", "c", "d", "e")
-               .via(Solution.pairOverlapping[String])
-               .foreach(pair =>
-                 Console.printLine(s"  (${pair._1}, ${pair._2})")
-               )
+        _ <-
+          ZStream("a", "b", "c", "d", "e")
+            .via(Solution.pairOverlapping[String])
+            .foreach(pair => Console.printLine(s"  (${pair._1}, ${pair._2})"))
 
         // Example 3: Edge Cases
         _ <- Console.printLine("\n--- Edge Cases ---")
@@ -170,27 +183,29 @@ package StreamingPipelines {
         threeCountNonOverlap <- ZStream(1, 2, 3)
                                   .via(Solution.pairNonOverlapping[Int])
                                   .runCount
-        _ <- Console.printLine(s"  Result: $threeCountNonOverlap pairs (3rd element unpaired)")
+        _ <- Console.printLine(
+               s"  Result: $threeCountNonOverlap pairs (3rd element unpaired)"
+             )
       } yield ()
     }
 
   }
 
   /**
-   *   2. Design a pipeline that outputs the minimum and maximum values from
-   *      a continuous data stream within a fixed time window.
+   *   2. Design a pipeline that outputs the minimum and maximum values from a
+   *      continuous data stream within a fixed time window.
    *
-   *      Option A: Tumbling Windows (non-overlapping)
-   *        - Each window is separate and non-overlapping
-   *        - Window 1: [0-500ms), Window 2: [500-1000ms), etc.
-   *        - Example: [1,2,3,4,5,6,7] → (1,3), (4,6), (7,7)
-   *        - Use case: Hourly/daily aggregations, clear boundaries
+   * Option A: Tumbling Windows (non-overlapping)
+   *   - Each window is separate and non-overlapping
+   *   - Window 1: [0-500ms), Window 2: [500-1000ms), etc.
+   *   - Example: [1,2,3,4,5,6,7] → (1,3), (4,6), (7,7)
+   *   - Use case: Hourly/daily aggregations, clear boundaries
    *
-   *      Option B: Sliding Windows (overlapping)
-   *        - Windows overlap continuously as time progresses
-   *        - Emit every interval with elements from last windowSize duration
-   *        - Example: [1,2,3,4,5,6,7] → (1,3), (2,4), (3,5), (4,6), (5,7)
-   *        - Use case: Real-time monitoring, continuous dashboards
+   * Option B: Sliding Windows (overlapping)
+   *   - Windows overlap continuously as time progresses
+   *   - Emit every interval with elements from last windowSize duration
+   *   - Example: [1,2,3,4,5,6,7] → (1,3), (2,4), (3,5), (4,6), (5,7)
+   *   - Use case: Real-time monitoring, continuous dashboards
    *
    * {{{
    * def minMaxWindowTumbling[A: Ordering](
@@ -212,9 +227,8 @@ package StreamingPipelines {
     object Solution {
 
       /**
-       * Option A: Tumbling (non-overlapping) windows
-       * Windows are separate: [0-500), [500-1000), [1000-1500)
-       * Clear buffer at each window boundary
+       * Option A: Tumbling (non-overlapping) windows Windows are separate:
+       * [0-500), [500-1000), [1000-1500) Clear buffer at each window boundary
        */
       def minMaxWindowTumbling[A: Ordering](
         windowSize: Duration
@@ -223,16 +237,23 @@ package StreamingPipelines {
         def channel(
           buffer: Vector[A],
           lastEmitTime: Long
-        ): ZChannel[Any, ZNothing, Chunk[A], Any, ZNothing, Chunk[(A, A)], Any] =
+        ): ZChannel[Any, ZNothing, Chunk[A], Any, ZNothing, Chunk[
+          (A, A)
+        ], Any] =
           ZChannel.readWithCause(
             elem => {
-              val newBuffer = buffer ++ elem
+              val newBuffer   = buffer ++ elem
               val currentTime = java.lang.System.currentTimeMillis()
 
-              if (currentTime - lastEmitTime >= windowSize.toMillis && newBuffer.nonEmpty) {
+              if (
+                currentTime - lastEmitTime >= windowSize.toMillis && newBuffer.nonEmpty
+              ) {
                 val min = newBuffer.min
                 val max = newBuffer.max
-                ZChannel.write(Chunk((min, max))) *> channel(Vector.empty, currentTime)
+                ZChannel.write(Chunk((min, max))) *> channel(
+                  Vector.empty,
+                  currentTime
+                )
               } else {
                 channel(newBuffer, lastEmitTime)
               }
@@ -254,9 +275,9 @@ package StreamingPipelines {
       }
 
       /**
-       * Option B: Sliding (overlapping) windows
-       * Windows overlap: [0-500), [200-700), [400-900), etc.
-       * Keep all elements with timestamps, filter aged-out elements
+       * Option B: Sliding (overlapping) windows Windows overlap: [0-500),
+       * [200-700), [400-900), etc. Keep all elements with timestamps, filter
+       * aged-out elements
        */
       def minMaxWindowSliding[A: Ordering](
         windowSize: Duration,
@@ -266,19 +287,23 @@ package StreamingPipelines {
         def channel(
           buffer: Vector[TimestampedValue[A]],
           lastEmitTime: Long
-        ): ZChannel[Any, ZNothing, Chunk[A], Any, ZNothing, Chunk[(A, A)], Any] =
+        ): ZChannel[Any, ZNothing, Chunk[A], Any, ZNothing, Chunk[
+          (A, A)
+        ], Any] =
           ZChannel.readWithCause(
             elem => {
               // Add new elements with timestamps
-              val currentTime = java.lang.System.currentTimeMillis()
+              val currentTime      = java.lang.System.currentTimeMillis()
               val timestampedElems = elem.map(TimestampedValue(currentTime, _))
-              val newBuffer = buffer ++ timestampedElems
+              val newBuffer        = buffer ++ timestampedElems
 
               // Remove elements older than the window
-              val windowStart = currentTime - windowSize.toMillis
+              val windowStart    = currentTime - windowSize.toMillis
               val filteredBuffer = newBuffer.filter(_.timestamp >= windowStart)
 
-              if (currentTime - lastEmitTime >= emitInterval.toMillis && filteredBuffer.nonEmpty) {
+              if (
+                currentTime - lastEmitTime >= emitInterval.toMillis && filteredBuffer.nonEmpty
+              ) {
                 val min = filteredBuffer.map(_.value).min
                 val max = filteredBuffer.map(_.value).max
                 ZChannel.write(Chunk((min, max))) *>
@@ -290,8 +315,8 @@ package StreamingPipelines {
             err => ZChannel.failCause(err),
             done => {
               // Emit final window if buffer is not empty
-              val currentTime = java.lang.System.currentTimeMillis()
-              val windowStart = currentTime - windowSize.toMillis
+              val currentTime    = java.lang.System.currentTimeMillis()
+              val windowStart    = currentTime - windowSize.toMillis
               val filteredBuffer = buffer.filter(_.timestamp >= windowStart)
 
               if (filteredBuffer.nonEmpty) {
@@ -337,9 +362,10 @@ package StreamingPipelines {
                )
 
         // Example 1B: Sliding (overlapping) windows
-        _ <- Console.printLine(
-               "\n--- Option B: Sliding Windows (500ms window, emit every 200ms) ---"
-             )
+        _ <-
+          Console.printLine(
+            "\n--- Option B: Sliding Windows (500ms window, emit every 200ms) ---"
+          )
         _ <- Console.printLine(
                "Overlapping windows: keeps recent 500ms of data"
              )
@@ -370,7 +396,8 @@ package StreamingPipelines {
                  Console.printLine(s"  (${minMax._1}, ${minMax._2})")
                )
 
-        _ <- Console.printLine("\nSliding (keep recent 400ms, emit every 150ms):")
+        _ <-
+          Console.printLine("\nSliding (keep recent 400ms, emit every 150ms):")
         _ <- ZStream(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
                .schedule(Schedule.spaced(100.millis))
                .via(Solution.minMaxWindowSliding[Int](400.millis, 150.millis))
@@ -384,14 +411,17 @@ package StreamingPipelines {
              )
         _ <- Console.printLine("Tumbling: Hourly temperature ranges\n")
 
-        _ <- ZStream(22, 21, 23, 24, 25, 23, 22, 21, 20, 19)
-               .schedule(Schedule.spaced(50.millis)) // Simulating 6-min intervals
-               .via(Solution.minMaxWindowTumbling[Int](300.millis)) // 300ms = simulated hour
-               .foreach(minMax =>
-                 Console.printLine(
-                   s"  Hourly range: ${minMax._1}°C - ${minMax._2}°C"
-                 )
-               )
+        _ <-
+          ZStream(22, 21, 23, 24, 25, 23, 22, 21, 20, 19)
+            .schedule(Schedule.spaced(50.millis)) // Simulating 6-min intervals
+            .via(
+              Solution.minMaxWindowTumbling[Int](300.millis)
+            ) // 300ms = simulated hour
+            .foreach(minMax =>
+              Console.printLine(
+                s"  Hourly range: ${minMax._1}°C - ${minMax._2}°C"
+              )
+            )
       } yield ()
     }
 
@@ -474,7 +504,11 @@ package StreamingPipelines {
           )
 
         // Helper: Create new session for a user
-        def newSession(userId: String, event: UserEvent, id: String): SessionState =
+        def newSession(
+          userId: String,
+          event: UserEvent,
+          id: String
+        ): SessionState =
           SessionState(
             sessionId = id,
             userId = userId,
@@ -485,18 +519,22 @@ package StreamingPipelines {
         def channel(
           state: ChannelState,
           sessionCounter: Long
-        ): ZChannel[Any, ZNothing, Chunk[UserEvent], Any, ZNothing, Chunk[Session], Any] =
+        ): ZChannel[Any, ZNothing, Chunk[UserEvent], Any, ZNothing, Chunk[
+          Session
+        ], Any] =
           ZChannel.readWithCause(
             elem => {
               var newState = state
-              var counter = sessionCounter
+              var counter  = sessionCounter
 
               elem.foreach { event =>
-                val userId = event.userId
+                val userId         = event.userId
                 val gapThresholdMs = gapThreshold.toMillis
 
                 // Check if we have an active session for this user
-                val updatedSessions = newState.activeSessions.get(userId) match {
+                val updatedSessions = newState.activeSessions.get(
+                  userId
+                ) match {
                   case Some(existingSession) =>
                     val timeSinceLastEvent =
                       java.time.Duration
@@ -505,10 +543,9 @@ package StreamingPipelines {
 
                     if (timeSinceLastEvent > gapThresholdMs) {
                       // Gap exceeded - session ended
-                      newState =
-                        newState.copy(sessionsToEmit =
-                          newState.sessionsToEmit :+ toSession(existingSession)
-                        )
+                      newState = newState.copy(sessionsToEmit =
+                        newState.sessionsToEmit :+ toSession(existingSession)
+                      )
 
                       // Start a new session
                       counter += 1
@@ -556,7 +593,8 @@ package StreamingPipelines {
             },
             done => {
               // Emit any remaining active sessions as completed
-              val remainingSessions = state.activeSessions.values.map(toSession).toList
+              val remainingSessions =
+                state.activeSessions.values.map(toSession).toList
 
               if (remainingSessions.nonEmpty) {
                 ZChannel.write(Chunk.fromIterable(remainingSessions)) *>
@@ -588,9 +626,10 @@ package StreamingPipelines {
         _ <- Console.printLine(
                "Creating sessions from user events grouped by inactivity"
              )
-        _ <- Console.printLine(
-               "Timeline: user-1@t=0ms, user-1@t=500ms, user-1@t=1000ms, gap=4s, user-1@t=5000ms, etc.\n"
-             )
+        _ <-
+          Console.printLine(
+            "Timeline: user-1@t=0ms, user-1@t=500ms, user-1@t=1000ms, gap=4s, user-1@t=5000ms, etc.\n"
+          )
 
         _ <- {
           val baseTime = Instant.now()
@@ -598,7 +637,10 @@ package StreamingPipelines {
             UserEvent("user-1", baseTime),
             UserEvent("user-1", baseTime.plusMillis(500)),
             UserEvent("user-1", baseTime.plusMillis(1000)),
-            UserEvent("user-1", baseTime.plusSeconds(5)), // New session (gap > 3s)
+            UserEvent(
+              "user-1",
+              baseTime.plusSeconds(5)
+            ), // New session (gap > 3s)
             UserEvent("user-2", baseTime.plusMillis(200)),
             UserEvent("user-2", baseTime.plusMillis(2000)),
             UserEvent("user-1", baseTime.plusSeconds(6))
@@ -629,8 +671,14 @@ package StreamingPipelines {
             UserEvent("alice", baseTime.plusMillis(500)),
             UserEvent("bob", baseTime.plusMillis(600)),
             UserEvent("alice", baseTime.plusMillis(1000)),
-            UserEvent("alice", baseTime.plusSeconds(5)), // Alice new session (gap > 2s)
-            UserEvent("bob", baseTime.plusSeconds(4))    // Bob continues (gap < 2s)
+            UserEvent(
+              "alice",
+              baseTime.plusSeconds(5)
+            ), // Alice new session (gap > 2s)
+            UserEvent(
+              "bob",
+              baseTime.plusSeconds(4)
+            ) // Bob continues (gap < 2s)
           )
 
           multiUserEvents
