@@ -30,35 +30,13 @@ package StreamingPipelines {
 
   /**
    *   2. Design a pipeline that outputs the minimum and maximum values from
-   *      a continuous data stream within a fixed time window.
-   *
-   *      Option A: Tumbling Windows (non-overlapping)
-   *        Windows: [0-500ms), [500-1000ms), [1000-1500ms)
-   *        Clear buffer at each window boundary
-   *        Input:  [1, 2, 3, 4, 5, 6, 7]  (100ms apart)
-   *        Output: (1,3), (4,6), (7,7)
-   *        Use case: Hourly/daily reports, clear boundaries
-   *
-   *      Option B: Sliding Windows (overlapping)
-   *        Keep recent N milliseconds of data
-   *        Emit at regular intervals with current window
-   *        Input:  [1, 2, 3, 4, 5, 6, 7]  (100ms apart)
-   *        Output: (1,3), (2,4), (3,5), (4,6), (5,7)  [emitting every 200ms]
-   *        Use case: Real-time dashboards, continuous monitoring
+   *      a continuous data stream within a fixed time window (e.g., every minute).
    *
    * {{{
-   * def minMaxWindowTumbling[A: Ordering](
+   * def minMaxWindow[A: Ordering](
    *   windowSize: Duration
    * ): ZPipeline[Any, Nothing, A, (A, A)] =
    *   ???
-   *
-   * def minMaxWindowSliding[A: Ordering](
-   *   windowSize: Duration,
-   *   emitInterval: Duration
-   * ): ZPipeline[Any, Nothing, A, (A, A)] =
-   *   ???
-   *
-   * // Or implement both!
    * }}}
    */
   package MinMaxWindow {}
