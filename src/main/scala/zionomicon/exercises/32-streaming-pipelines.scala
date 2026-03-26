@@ -3,11 +3,27 @@ package zionomicon.exercises
 package StreamingPipelines {
 
   /**
-   *   1. Create a pipeline that groups consecutive elements into pairs:
+   *   1. Create a pipeline that groups consecutive elements into pairs.
+   *      Choose one or both options:
+   *
+   *      Option A: Overlapping pairs
+   *        Input:  1, 2, 3, 4, 5
+   *        Output: (1,2), (2,3), (3,4), (4,5)
+   *        Use case: Detecting changes/trends between consecutive elements
+   *
+   *      Option B: Non-overlapping pairs
+   *        Input:  1, 2, 3, 4, 5
+   *        Output: (1,2), (3,4)  [5 is unpaired and discarded]
+   *        Use case: Batch processing, fixed-size chunking
    *
    * {{{
-   * def pair[A]: ZPipeline[Any, Nothing, A, (A, A)] =
+   * def pairOverlapping[A]: ZPipeline[Any, Nothing, A, (A, A)] =
    *   ???
+   *
+   * def pairNonOverlapping[A]: ZPipeline[Any, Nothing, A, (A, A)] =
+   *   ???
+   *
+   * // Or implement both!
    * }}}
    */
   package PairPipeline {}

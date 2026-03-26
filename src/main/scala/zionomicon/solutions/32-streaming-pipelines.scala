@@ -9,6 +9,8 @@ package StreamingPipelines {
 
   /**
    *   1. Create a pipeline that groups consecutive elements into pairs:
+   *      - Option A: Overlapping pairs (1,2,3,4 → (1,2), (2,3), (3,4))
+   *      - Option B: Non-overlapping pairs (1,2,3,4 → (1,2), (3,4))
    *
    * {{{
    * def pair[A]: ZPipeline[Any, Nothing, A, (A, A)] =
@@ -19,7 +21,12 @@ package StreamingPipelines {
 
     object Solution {
 
-      def pair[A]: ZPipeline[Any, Nothing, A, (A, A)] = {
+      /**
+       * Option A: Overlapping pairs - each element pairs with the next one
+       * Example: 1,2,3,4 → (1,2), (2,3), (3,4)
+       * Useful for: detecting changes/trends between consecutive elements
+       */
+      def pairOverlapping[A]: ZPipeline[Any, Nothing, A, (A, A)] = {
 
         def channel(previous: Option[A]): ZChannel[Any, ZNothing, Chunk[A], Any, ZNothing, Chunk[(A, A)], Any] =
           ZChannel.readWithCause(
@@ -46,6 +53,52 @@ package StreamingPipelines {
         ZPipeline.fromChannel(channel(None))
       }
 
+      /**
+       * Option B: Non-overlapping pairs - consecutive elements are grouped into disjoint pairs
+       * Example: 1,2,3,4 → (1,2), (3,4)
+       * Useful for: batch processing, fixed-size chunking
+       */
+      def pairNonOverlapping[A]: ZPipeline[Any, Nothing, A, (A, A)] = {
+
+        def channel(pending: Option[A]): ZChannel[Any, ZNothing, Chunk[A], Any, ZNothing, Chunk[(A, A)], Any] =
+          ZChannel.readWithCause(
+            elem => {
+              val pairs = scala.collection.mutable.ListBuffer.empty[(A, A)]
+              var current = pending
+
+              elem.foreach { newElem =>
+                current match {
+                  case Some(first) =>
+                    // We have a pending element, pair it with this new element
+                    pairs += ((first, newElem))
+                    current = None
+                  case None =>
+                    // No pending element, make this one pending
+                    current = Some(newElem)
+                }
+              }
+
+              if (pairs.nonEmpty)
+                ZChannel.write(Chunk.fromIterable(pairs)) *> channel(current)
+              else
+                channel(current)
+            },
+            err => {
+              // On error, discard any pending unpaired element
+              ZChannel.failCause(err)
+            },
+            done => {
+              // On stream end, discard any unpaired element (can't form a complete pair)
+              ZChannel.succeed(done)
+            }
+          )
+
+        ZPipeline.fromChannel(channel(None))
+      }
+
+      // Alias for the most common interpretation (overlapping)
+      def pair[A]: ZPipeline[Any, Nothing, A, (A, A)] = pairOverlapping[A]
+
     }
 
     // --- Example Showcase ---
@@ -55,43 +108,69 @@ package StreamingPipelines {
       def run: ZIO[Any, Any, Unit] = for {
         _ <- Console.printLine("=== Exercise 1: Pair Pipeline ===")
 
-        // Example 1: Simple numeric pairing
-        _ <- Console.printLine("\n--- Example 1: Numeric Pairing ---")
+        // Example 1A: Overlapping pairs
+        _ <- Console.printLine("\n--- Option A: Overlapping Pairs ---")
         _ <- Console.printLine(
-               "Creating pairs from consecutive integers: 1, 2, 3, 4, 5"
+               "Each element pairs with the next: 1,2,3,4,5 → (1,2), (2,3), (3,4), (4,5)"
              )
+        _ <- Console.printLine("Use case: Detecting changes/trends between consecutive elements\n")
 
         _ <- ZStream(1, 2, 3, 4, 5)
-               .via(Solution.pair[Int])
-               .foreach(pair => Console.printLine(s"  Pair: ${pair._1} -> ${pair._2}"))
+               .via(Solution.pairOverlapping[Int])
+               .foreach(pair => Console.printLine(s"  ${pair._1} -> ${pair._2}"))
 
-        // Example 2: String pairing
-        _ <- Console.printLine("\n--- Example 2: String Pairing ---")
+        // Example 1B: Non-overlapping pairs
+        _ <- Console.printLine("\n--- Option B: Non-Overlapping Pairs ---")
         _ <- Console.printLine(
-               "Creating character pairs from a sequence"
+               "Disjoint pairs: 1,2,3,4,5 → (1,2), (3,4) [5 discarded, unpaired]"
+             )
+        _ <- Console.printLine("Use case: Batch processing, fixed-size chunking\n")
+
+        _ <- ZStream(1, 2, 3, 4, 5)
+               .via(Solution.pairNonOverlapping[Int])
+               .foreach(pair => Console.printLine(s"  (${pair._1}, ${pair._2})"))
+
+        // Example 2: String pairing with overlapping
+        _ <- Console.printLine("\n--- Example: String Overlapping Pairing ---")
+        _ <- Console.printLine(
+               "Characters: a,b,c,d,e\n"
              )
 
         _ <- ZStream("a", "b", "c", "d", "e")
-               .via(Solution.pair[String])
+               .via(Solution.pairOverlapping[String])
                .foreach(pair =>
-                 Console.printLine(s"  Pair: (${pair._1}, ${pair._2})")
+                 Console.printLine(s"  (${pair._1}, ${pair._2})")
                )
 
-        // Example 3: Empty and single element streams
-        _ <- Console.printLine("\n--- Example 3: Edge Cases ---")
-        _ <- Console.printLine("Empty stream:")
+        // Example 3: Edge Cases
+        _ <- Console.printLine("\n--- Edge Cases ---")
+        _ <- Console.printLine("Empty stream with overlapping:")
 
-        emptyCount <- ZStream.empty
-                        .via(Solution.pair[Int])
-                        .runCount
-        _ <- Console.printLine(s"  Result: $emptyCount pairs (expected 0)")
+        emptyCountOverlap <- ZStream.empty
+                               .via(Solution.pairOverlapping[Int])
+                               .runCount
+        _ <- Console.printLine(s"  Result: $emptyCountOverlap pairs")
 
-        _ <- Console.printLine("Single element stream:")
+        _ <- Console.printLine("\nSingle element with overlapping:")
 
-        singleCount <- ZStream(42)
-                         .via(Solution.pair[Int])
-                         .runCount
-        _ <- Console.printLine(s"  Result: $singleCount pairs (expected 0)")
+        singleCountOverlap <- ZStream(42)
+                                .via(Solution.pairOverlapping[Int])
+                                .runCount
+        _ <- Console.printLine(s"  Result: $singleCountOverlap pairs")
+
+        _ <- Console.printLine("\nTwo elements with non-overlapping:")
+
+        twoCountNonOverlap <- ZStream(1, 2)
+                                .via(Solution.pairNonOverlapping[Int])
+                                .runCount
+        _ <- Console.printLine(s"  Result: $twoCountNonOverlap pairs")
+
+        _ <- Console.printLine("\nThree elements with non-overlapping:")
+
+        threeCountNonOverlap <- ZStream(1, 2, 3)
+                                  .via(Solution.pairNonOverlapping[Int])
+                                  .runCount
+        _ <- Console.printLine(s"  Result: $threeCountNonOverlap pairs (3rd element unpaired)")
       } yield ()
     }
 

@@ -3,7 +3,9 @@
     "allow": [
       "Bash(gh:*)",
       "Bash(sbtn:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
