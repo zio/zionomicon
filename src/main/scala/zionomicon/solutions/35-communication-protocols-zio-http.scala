@@ -18,15 +18,152 @@ package CommunicationProtocolsZIOHTTP {
    */
   package ProtobufEncoding {
 
-    object Solution {}
+    import zio._
+    import zio.http._
+    import zio.schema._
+    import zio.schema.codec.ProtobufCodec._
+
+    /**
+     * Domain model for a Book with automatic schema derivation. The schema
+     * enables both JSON and Protobuf codec support.
+     */
+    case class Book(
+      title: String,
+      authors: List[String]
+    )
+
+    object Book {
+      implicit val schema: Schema[Book] = DeriveSchema.gen
+    }
+
+    /**
+     * Mock repository for books. In a real application, this would interact
+     * with a database.
+     */
+    trait BookRepo {
+      def add(book: Book): ZIO[Any, Nothing, Unit]
+      def find(title: String): ZIO[Any, Nothing, List[Book]]
+    }
+
+    /**
+     * In-memory implementation of BookRepo for demonstration purposes.
+     */
+    object BookRepo {
+      def inMemory: ZIO[Any, Nothing, BookRepo] =
+        Ref.make(Map.empty[String, List[Book]]).map { ref =>
+          new BookRepo {
+            override def add(book: Book): ZIO[Any, Nothing, Unit] =
+              ref.update { books =>
+                val key = book.title.toLowerCase
+                books.updated(key, books.get(key).getOrElse(List()) :+ book)
+              }
+
+            override def find(title: String): ZIO[Any, Nothing, List[Book]] =
+              ref.get.map(_.getOrElse(title.toLowerCase, List()))
+          }
+        }
+    }
+
+    object Solution {
+
+      /**
+       * Creates routes that handle books using Protobuf encoding.
+       *
+       * KEY INSIGHT: This implementation is identical to the JSON version from
+       * the chapter, except for ONE change: import
+       * zio.schema.codec.ProtobufCodec._ (instead of JsonCodec._)
+       *
+       * The Body.from[A] and req.body.to[A] methods automatically use the codec
+       * available in scope. By changing the import, we seamlessly switch from
+       * JSON to Protobuf without changing any handler logic!
+       */
+      def protobufBookRoutes: Routes[BookRepo, Response] =
+        Routes(
+          /**
+           * POST /books - Accept a book via Protobuf-encoded request body
+           */
+          Method.POST / "books" ->
+            handler { (req: Request) =>
+              req.body
+                .to[Book]
+                .mapBoth(
+                  _ => Response.badRequest("Unable to deserialize Book"),
+                  book =>
+                    ZIO
+                      .serviceWithZIO[BookRepo](_.add(book))
+                      .as(Response.status(Status.Created))
+                )
+                .flatMap(identity)
+            },
+          /**
+           * GET /books - Query books and return results as Protobuf-encoded
+           * response
+           */
+          Method.GET / "books" ->
+            handler { (req: Request) =>
+              for {
+                query <- ZIO
+                           .fromOption(req.queryParam("q"))
+                           .orElseFail(
+                             Response.badRequest("Missing query parameter 'q'")
+                           )
+                books <- ZIO.serviceWithZIO[BookRepo](_.find(query))
+              } yield Response(
+                status = Status.Ok,
+                body = Body.from(books)
+              )
+            }
+        )
+
+      /**
+       * Example application demonstrating Protobuf-encoded book API.
+       */
+      object ExampleApp extends ZIOAppDefault {
+
+        def run: ZIO[Any, Any, Unit] =
+          for {
+            repo  <- BookRepo.inMemory
+            routes = protobufBookRoutes
+            _ <- Server
+                   .serve(routes)
+                   .provide(
+                     Server.default,
+                     ZLayer.succeed(repo)
+                   )
+          } yield ()
+      }
+
+      /**
+       * Comparison Example: JSON vs Protobuf
+       *
+       * To use JSON codec instead of Protobuf, simply change the import:
+       *
+       * import zio.schema.codec.JsonCodec._
+       *
+       * Everything else remains identical! The route logic, handlers, and error
+       * handling don't change. This demonstrates the power of ZIO HTTP's codec
+       * abstraction - different serialization formats are pluggable.
+       *
+       * Benefits of Protobuf over JSON:
+       *   - More compact binary format (smaller message size)
+       *   - Faster serialization/deserialization
+       *   - Better for bandwidth-constrained scenarios
+       *   - Schema evolution support built-in
+       *
+       * Trade-offs:
+       *   - Not human-readable (vs JSON)
+       *   - Requires client to understand Protobuf format
+       *   - Slightly more complex debugging
+       */
+    }
 
   }
 
   /**
-   *   2. Implement a HandlerAspect middleware that logs the processing time
-   *      for each request in milliseconds. Similar to the duration protocol
-   *      stack example, but using the HandlerAspect API with proper
-   *      composition semantics.
+   *   2. Implement a HandlerAspect middleware that logs the processing time for
+   *      each request in milliseconds. Similar to the duration protocol stack
+   *      example, but using the HandlerAspect API with proper composition
+   *      semantics.
    *
    * {{{
    * def requestDurationLogging: HandlerAspect[Any] = ???
