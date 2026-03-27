@@ -138,6 +138,124 @@ package CommunicationProtocolsZIOHTTP {
       }
 
       /**
+       * Integration tests for Protobuf-encoded routes using ZIO HTTP Client
+       * API. Run with: sbtn "runMain
+       * zionomicon.solutions.CommunicationProtocolsZIOHTTP.ProtobufEncoding.Solution.ProtobufRoutesTest"
+       */
+      object ProtobufRoutesTest extends ZIOAppDefault {
+
+        def run: ZIO[Any, Any, Unit] =
+          (for {
+            repo  <- BookRepo.inMemory
+            routes = ProtobufRoutes.protobufBookRoutes
+            _     <- ZIO.debug("Starting Protobuf Routes Integration Tests...")
+            _ <- Server
+                   .serve(routes)
+                   .provide(Server.default, ZLayer.succeed(repo))
+                   .fork
+            _ <- ZIO.sleep(1.second)
+
+            _ <- ZIO.debug(
+                   "\n=== TEST 1: POST /books - Add 'Programming in Scala' ==="
+                 )
+            url1 <- ZIO.fromEither(
+                      URL.decode("http://localhost:8080/books")
+                    )
+            book1 = Book(
+                      "Programming in Scala",
+                      List("Martin Odersky", "Lex Spoon", "Bill Venners")
+                    )
+            req1  = Request.post(url1, Body.from(book1))
+            res1 <- Client.batched(req1)
+            _    <- ZIO.debug(s"Response: ${res1.status} (expected: 201 Created)")
+            _ <- if (res1.status == Status.Created) {
+                   ZIO.debug("✅ POST /books succeeded")
+                 } else {
+                   ZIO.fail(s"Unexpected status: ${res1.status}, expected: 201")
+                 }
+
+            _ <- ZIO.debug("\n=== TEST 2: GET /books?q=scala - Query books ===")
+            url2 <- ZIO.fromEither(
+                      URL.decode("http://localhost:8080/books?q=scala")
+                    )
+            req2    = Request.get(url2)
+            res2   <- Client.batched(req2)
+            _      <- ZIO.debug(s"Response: ${res2.status} (expected: 200 OK)")
+            books2 <- res2.body.to[List[Book]]
+            _      <- ZIO.debug(s"Found ${books2.length} book(s)")
+            _ <- ZIO.foreach(books2) { book =>
+                   ZIO.debug(s"  - ${book.title}")
+                 }
+            _ <- if (books2.nonEmpty) {
+                   ZIO.debug("✅ GET /books?q=scala succeeded")
+                 } else {
+                   ZIO.fail("Expected to find books matching 'scala'")
+                 }
+
+            _ <- ZIO.debug(
+                   "\n=== TEST 3: POST /books - Add 'Functional Programming in Scala' ==="
+                 )
+            url3 <- ZIO.fromEither(
+                      URL.decode("http://localhost:8080/books")
+                    )
+            book3 = Book(
+                      "Functional Programming in Scala",
+                      List("Paul Chiusano", "Runar Bjarnason")
+                    )
+            req3  = Request.post(url3, Body.from(book3))
+            res3 <- Client.batched(req3)
+            _    <- ZIO.debug(s"Response: ${res3.status} (expected: 201 Created)")
+            _ <- if (res3.status == Status.Created) {
+                   ZIO.debug("✅ POST /books (second book) succeeded")
+                 } else {
+                   ZIO.fail(s"Unexpected status: ${res3.status}, expected: 201")
+                 }
+
+            _ <- ZIO.debug(
+                   "\n=== TEST 4: GET /books?q=functional - Query with different keyword ==="
+                 )
+            url4 <- ZIO.fromEither(
+                      URL.decode("http://localhost:8080/books?q=functional")
+                    )
+            req4    = Request.get(url4)
+            res4   <- Client.batched(req4)
+            _      <- ZIO.debug(s"Response: ${res4.status} (expected: 200 OK)")
+            books4 <- res4.body.to[List[Book]]
+            _ <- ZIO.debug(
+                   s"Found ${books4.length} book(s) matching 'functional'"
+                 )
+            _ <- if (books4.length == 1) {
+                   ZIO.debug("✅ GET /books?q=functional succeeded")
+                 } else {
+                   ZIO.fail(s"Expected 1 book, found ${books4.length}")
+                 }
+
+            _ <- ZIO.debug(
+                   "\n=== TEST 5: GET /books - Missing query parameter ==="
+                 )
+            url5 <- ZIO.fromEither(
+                      URL.decode("http://localhost:8080/books")
+                    )
+            req5  = Request.get(url5)
+            res5 <- Client.batched(req5)
+            _ <- ZIO.debug(
+                   s"Response: ${res5.status} (expected: 400 Bad Request)"
+                 )
+            errorMsg <- res5.body.asString
+            _        <- ZIO.debug(s"Error: $errorMsg")
+            _ <- if (res5.status == Status.BadRequest) {
+                   ZIO.debug(
+                     "✅ Error handling works correctly for missing query parameter"
+                   )
+                 } else {
+                   ZIO.fail(s"Unexpected status: ${res5.status}, expected: 400")
+                 }
+
+            _ <- ZIO.debug("\n✅ All tests completed successfully!")
+          } yield ()).provide(Client.default)
+      }
+
+      /**
        * Comparison Example: JSON vs Protobuf
        *
        * To use JSON codec instead of Protobuf, simply change the import:
