@@ -20,8 +20,15 @@ object AppendixCFunctionalDesign {
    */
   object Exercise2 {
 
-    def repeat[A](f: A => A, n: Int)(initial: A): A =
-      ???
+    def repeat[A](f: A => A, n: Int)(initial: A): A = {
+      var result = initial
+      var i = 0
+      while (i < n) {
+        result = f(result)
+        i += 1
+      }
+      result
+    }
   }
 
   /**
@@ -31,7 +38,7 @@ object AppendixCFunctionalDesign {
   object Exercise3 {
 
     def curry[A, B, C](f: (A, B) => C): A => B => C =
-      ???
+      a => b => f(a, b)
   }
 
   /**
@@ -41,7 +48,7 @@ object AppendixCFunctionalDesign {
   object Exercise4 {
 
     def uncurry[A, B, C](f: A => B => C): (A, B) => C =
-      ???
+      (a, b) => f(a)(b)
   }
 
   /**
@@ -52,7 +59,7 @@ object AppendixCFunctionalDesign {
   object Exercise5 {
 
     def partial[A, B, C](f: (A, B) => C, a: A): B => C =
-      ???
+      b => f(a, b)
   }
 
   /**
@@ -62,7 +69,7 @@ object AppendixCFunctionalDesign {
   object Exercise6 {
 
     def pipe[A](value: A, functions: List[A => A]): A =
-      ???
+      functions.foldLeft(value)((a, f) => f(a))
   }
 
   /**
@@ -72,7 +79,7 @@ object AppendixCFunctionalDesign {
   object Exercise7 {
 
     def fanout[A, B](f: A => B, g: A => B): A => (B, B) =
-      ???
+      a => (f(a), g(a))
   }
 
   /**
@@ -86,7 +93,10 @@ object AppendixCFunctionalDesign {
       effect1: ZIO[R, E, A],
       effect2: ZIO[R, E, B]
     ): ZIO[R, E, C] =
-      ???
+      for {
+        a <- effect1
+        b <- effect2
+      } yield f(a, b)
   }
 
   /**
@@ -95,8 +105,10 @@ object AppendixCFunctionalDesign {
    */
   object Exercise9 {
 
-    def memoize[A, B](f: A => B): A => B =
-      ???
+    def memoize[A, B](f: A => B): A => B = {
+      val cache = scala.collection.mutable.Map[A, B]()
+      a => cache.getOrElseUpdate(a, f(a))
+    }
   }
 
   /**
@@ -106,7 +118,7 @@ object AppendixCFunctionalDesign {
   object Exercise10 {
 
     def optionToThrow[A, B](f: A => Option[B]): A => B =
-      ???
+      a => f(a).getOrElse(throw new NoSuchElementException())
   }
 
 }
