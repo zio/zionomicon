@@ -57,7 +57,42 @@ package ZIORuntime {
    *      a JMH benchmark that compares the throughput of the same workload
    *      running under the default `ZScheduler` versus the alternative
    *      scheduler.
+   *
+   * The JMH benchmark lives in `src/jmh/scala/zionomicon/solutions/SchedulerBenchmark.scala`.
+   * Run it with: `sbt jmh:run -i 5 -wi 3 -f 1 .*SchedulerBenchmark.*`
    */
-  package SchedulerBenchmark {}
+  package SchedulerBenchmark {
+
+    object KyoSchedulerApp extends ZIOAppDefault {
+      import kyo.scheduler.Scheduler
+
+      // Wrap the Kyo scheduler so ZIO can use it as its default executor.
+      val kyoExecutor: Executor =
+        Executor.fromJavaExecutor(Scheduler.get.asExecutor)
+
+      override val bootstrap: ZLayer[ZIOAppArgs, Any, Any] =
+        Runtime.setExecutor(kyoExecutor)
+
+      // Workload: 1 000 short-lived concurrent fibers, each doing a small
+      // CPU-bound computation.  This exercises scheduler fork/join throughput.
+      val workload: UIO[Unit] =
+        ZIO.foreachParDiscard(1 to 1000) { _ =>
+          ZIO.succeed {
+            var sum = 0
+            var i   = 1
+            while (i <= 100) { sum += i; i += 1 }
+            sum
+          }
+        }
+
+      def run =
+        for {
+          _ <- ZIO.debug("Running workload on the Kyo scheduler…")
+          _ <- workload
+          _ <- ZIO.debug("Done")
+        } yield ()
+    }
+
+  }
 
 }
