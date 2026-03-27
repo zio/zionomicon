@@ -64,56 +64,60 @@ package CommunicationProtocolsZIOHTTP {
         }
     }
 
-    object Solution {
+    package Solution {
 
-      /**
-       * Creates routes that handle books using Protobuf encoding.
-       *
-       * KEY INSIGHT: This implementation is identical to the JSON version from
-       * the chapter, except for ONE change: import
-       * zio.schema.codec.ProtobufCodec._ (instead of JsonCodec._)
-       *
-       * The Body.from[A] and req.body.to[A] methods automatically use the codec
-       * available in scope. By changing the import, we seamlessly switch from
-       * JSON to Protobuf without changing any handler logic!
-       */
-      def protobufBookRoutes: Routes[BookRepo, Response] =
-        Routes(
-          /**
-           * POST /books - Accept a book via Protobuf-encoded request body
-           */
-          Method.POST / "books" ->
-            handler { (req: Request) =>
-              req.body
-                .to[Book]
-                .mapBoth(
-                  _ => Response.badRequest("Unable to deserialize Book"),
-                  book =>
+      object ProtobufRoutes {
+
+        /**
+         * Creates routes that handle books using Protobuf encoding.
+         *
+         * KEY INSIGHT: This implementation is identical to the JSON version
+         * from the chapter, except for ONE change: import
+         * zio.schema.codec.ProtobufCodec._ (instead of JsonCodec._)
+         *
+         * The Body.from[A] and req.body.to[A] methods automatically use the
+         * codec available in scope. By changing the import, we seamlessly
+         * switch from JSON to Protobuf without changing any handler logic!
+         */
+        def protobufBookRoutes: zio.http.Routes[BookRepo, Response] =
+          zio.http.Routes(
+            /**
+             * POST /books - Accept a book via Protobuf-encoded request body
+             */
+            Method.POST / "books" ->
+              handler { (req: Request) =>
+                req.body
+                  .to[Book]
+                  .mapBoth(
+                    _ => Response.badRequest("Unable to deserialize Book"),
+                    book =>
+                      ZIO
+                        .serviceWithZIO[BookRepo](_.add(book))
+                        .as(Response.status(Status.Created))
+                  )
+                  .flatMap(identity)
+              },
+            /**
+             * GET /books - Query books and return results as Protobuf-encoded
+             * response
+             */
+            Method.GET / "books" ->
+              handler { (req: Request) =>
+                for {
+                  query <-
                     ZIO
-                      .serviceWithZIO[BookRepo](_.add(book))
-                      .as(Response.status(Status.Created))
+                      .fromOption(req.queryParam("q"))
+                      .orElseFail(
+                        Response.badRequest("Missing query parameter 'q'")
+                      )
+                  books <- ZIO.serviceWithZIO[BookRepo](_.find(query))
+                } yield Response(
+                  status = Status.Ok,
+                  body = Body.from(books)
                 )
-                .flatMap(identity)
-            },
-          /**
-           * GET /books - Query books and return results as Protobuf-encoded
-           * response
-           */
-          Method.GET / "books" ->
-            handler { (req: Request) =>
-              for {
-                query <- ZIO
-                           .fromOption(req.queryParam("q"))
-                           .orElseFail(
-                             Response.badRequest("Missing query parameter 'q'")
-                           )
-                books <- ZIO.serviceWithZIO[BookRepo](_.find(query))
-              } yield Response(
-                status = Status.Ok,
-                body = Body.from(books)
-              )
-            }
-        )
+              }
+          )
+      }
 
       /**
        * Example application demonstrating Protobuf-encoded book API.
@@ -123,7 +127,7 @@ package CommunicationProtocolsZIOHTTP {
         def run: ZIO[Any, Any, Unit] =
           for {
             repo  <- BookRepo.inMemory
-            routes = protobufBookRoutes
+            routes = ProtobufRoutes.protobufBookRoutes
             _ <- Server
                    .serve(routes)
                    .provide(
@@ -155,6 +159,7 @@ package CommunicationProtocolsZIOHTTP {
        *   - Requires client to understand Protobuf format
        *   - Slightly more complex debugging
        */
+
     }
 
   }
