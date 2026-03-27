@@ -160,6 +160,57 @@ package CommunicationProtocolsZIOHTTP {
        *   - Slightly more complex debugging
        */
 
+      /**
+       * TESTING THE ROUTES WITH CURL
+       *
+       * Since Protobuf is a binary format, you cannot easily test with plain
+       * curl like you would with JSON. However, you can still use curl to verify
+       * the basic HTTP behavior. For real Protobuf testing, you would need a
+       * Protobuf-aware client.
+       *
+       * OPTION 1: Test with JSON (for easier manual testing)
+       * ====================================================
+       * 1. Change the import in the ProtobufRoutes object:
+       *    import zio.schema.codec.JsonCodec._  (instead of ProtobufCodec._)
+       *
+       * 2. Run the server:
+       *    sbtn "runMain zionomicon.solutions.CommunicationProtocolsZIOHTTP.ProtobufEncoding.Solution.ExampleApp"
+       *
+       * 3. Test POST /books endpoint:
+       *    curl -X POST http://localhost:8080/books \
+       *      -H "Content-Type: application/json" \
+       *      -d '{"title": "Programming in Scala", "authors": ["Martin Odersky", "Lex Spoon", "Bill Venners"]}'
+       *
+       *    Expected response: 201 Created (empty body)
+       *
+       * 4. Test GET /books endpoint:
+       *    curl -X GET "http://localhost:8080/books?q=scala" \
+       *      -H "Accept: application/json"
+       *
+       *    Expected response: 200 OK with JSON array of books
+       *    [{"title": "Programming in Scala", "authors": ["Martin Odersky", ...]}]
+       *
+       * 5. Test error handling - missing query parameter:
+       *    curl -X GET http://localhost:8080/books
+       *
+       *    Expected response: 400 Bad Request with error message
+       *    "Missing query parameter 'q'"
+       *
+       * OPTION 2: Test with Protobuf client (programmatic)
+       * ====================================================
+       * For testing the actual Protobuf codec, use the ZIO HTTP client API:
+       *
+       * val testClient = for {
+       *   url <- ZIO.fromEither(URL.decode("http://localhost:8080/books"))
+       *   book = Book("Functional Programming", List("Paul Chiusano", "Runar Bjarnason"))
+       *   req = Request.post(url, Body.from(book))
+       *   res <- Client.batched(req)
+       *   _ <- ZIO.debug(s"Response status: ${res.status}")
+       * } yield res
+       *
+       * testClient.provide(Client.default)
+       */
+
     }
 
   }
