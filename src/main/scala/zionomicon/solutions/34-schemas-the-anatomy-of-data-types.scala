@@ -378,7 +378,256 @@ package SchemaTheAnatomyOfDataTypes {
   /**
    *   2. Implement nested query support in the Query DSL.
    */
-  package NestedQuerySupport {}
+  /**
+   *   2. Implement nested query support in the Query DSL.
+   */
+  package NestedQuerySupport {
+
+    import zio._
+    import zio.test._
+
+    // ── Core data types (reused from exercise 1 with / operator added) ────────
+
+    final class FieldAccessor[S, A](
+      val recordType: String,
+      val fieldName: String,
+      val get: S => A
+    ) { self =>
+
+      /** Compose two accessors into a single path: `outer / inner`. */
+      def /[B](inner: FieldAccessor[A, B]): FieldAccessor[S, B] =
+        FieldAccessor(
+          recordType,
+          s"$fieldName.${inner.fieldName}",
+          s => inner.get(self.get(s))
+        )
+
+      def ===(value: A): Query[S] = Query.Equal(self, value)
+
+      def !==(value: A): Query[S] = Query.NotEqual(self, value)
+
+      def >(value: A)(implicit ord: Ordering[A]): Query[S] =
+        Query.GreaterThan(self, value, ord)
+
+      def <(value: A)(implicit ord: Ordering[A]): Query[S] =
+        Query.LessThan(self, value, ord)
+
+      def >=(value: A)(implicit ord: Ordering[A]): Query[S] =
+        Query.GreaterThanOrEqual(self, value, ord)
+
+      def <=(value: A)(implicit ord: Ordering[A]): Query[S] =
+        Query.LessThanOrEqual(self, value, ord)
+
+      override def equals(obj: Any): Boolean = obj match {
+        case other: FieldAccessor[_, _] =>
+          recordType == other.recordType && fieldName == other.fieldName
+        case _ => false
+      }
+
+      override def hashCode: Int = (recordType, fieldName).hashCode
+
+      override def toString: String = s"FieldAccessor($recordType.$fieldName)"
+    }
+
+    object FieldAccessor {
+
+      def apply[S, A](
+        recordType: String,
+        fieldName: String,
+        get: S => A
+      ): FieldAccessor[S, A] =
+        new FieldAccessor(recordType, fieldName, get)
+
+      implicit class StringOps[S](val self: FieldAccessor[S, String])
+          extends AnyVal {
+
+        def contains(value: String): Query[S] =
+          Query.Contains(self, value)
+      }
+    }
+
+    sealed trait Query[S] { self =>
+      def &&(that: Query[S]): Query[S] = Query.And(self, that)
+      def ||(that: Query[S]): Query[S] = Query.Or(self, that)
+      def unary_! : Query[S]           = Query.Not(self)
+    }
+
+    object Query {
+      case class Equal[S, A](field: FieldAccessor[S, A], value: A)       extends Query[S]
+      case class NotEqual[S, A](field: FieldAccessor[S, A], value: A)    extends Query[S]
+      case class GreaterThan[S, A](field: FieldAccessor[S, A], value: A, ord: Ordering[A]) extends Query[S]
+      case class LessThan[S, A](field: FieldAccessor[S, A], value: A, ord: Ordering[A])    extends Query[S]
+      case class GreaterThanOrEqual[S, A](field: FieldAccessor[S, A], value: A, ord: Ordering[A]) extends Query[S]
+      case class LessThanOrEqual[S, A](field: FieldAccessor[S, A], value: A, ord: Ordering[A])    extends Query[S]
+      case class Contains[S](field: FieldAccessor[S, String], value: String) extends Query[S]
+      case class And[S](left: Query[S], right: Query[S]) extends Query[S]
+      case class Or[S](left: Query[S], right: Query[S])  extends Query[S]
+      case class Not[S](query: Query[S])                 extends Query[S]
+    }
+
+    object QueryInterpreter {
+      def evaluate[S](query: Query[S], record: S): Boolean = query match {
+        case Query.Equal(field, expected)                    => field.get(record) == expected
+        case Query.NotEqual(field, expected)                 => field.get(record) != expected
+        case Query.GreaterThan(field, threshold, ord)        => ord.compare(field.get(record), threshold) > 0
+        case Query.LessThan(field, threshold, ord)           => ord.compare(field.get(record), threshold) < 0
+        case Query.GreaterThanOrEqual(field, threshold, ord) => ord.compare(field.get(record), threshold) >= 0
+        case Query.LessThanOrEqual(field, threshold, ord)    => ord.compare(field.get(record), threshold) <= 0
+        case Query.Contains(field, substring)                => field.get(record).contains(substring)
+        case Query.And(left, right)                          => evaluate(left, record) && evaluate(right, record)
+        case Query.Or(left, right)                           => evaluate(left, record) || evaluate(right, record)
+        case Query.Not(inner)                                => !evaluate(inner, record)
+      }
+    }
+
+    // ── Domain model ──────────────────────────────────────────────────────────
+
+    case class Address(country: String, city: String, street: String)
+
+    object Address {
+      val country: FieldAccessor[Address, String] =
+        FieldAccessor("Address", "country", _.country)
+      val city: FieldAccessor[Address, String] =
+        FieldAccessor("Address", "city", _.city)
+      val street: FieldAccessor[Address, String] =
+        FieldAccessor("Address", "street", _.street)
+    }
+
+    case class Person(name: String, age: Int, address: Address)
+
+    object Person {
+      val name: FieldAccessor[Person, String] =
+        FieldAccessor("Person", "name", _.name)
+      val age: FieldAccessor[Person, Int] =
+        FieldAccessor("Person", "age", _.age)
+      val address: FieldAccessor[Person, Address] =
+        FieldAccessor("Person", "address", _.address)
+    }
+
+    // ── Spec ──────────────────────────────────────────────────────────────────
+
+    object NestedQuerySpec extends ZIOSpecDefault {
+
+      val tokyo: Address   = Address("Japan", "Tokyo", "Shibuya")
+      val london: Address  = Address("UK", "London", "Baker St")
+      val john: Person     = Person("John Doe", 35, tokyo)
+      val alice: Person    = Person("Alice", 28, london)
+      val charlie: Person  = Person("Charlie", 42, tokyo)
+
+      override def spec: Spec[TestEnvironment with Scope, Any] =
+        suite("Nested Query DSL")(
+          suite("/ operator composes accessors")(
+            test("/ produces a path accessor with combined fieldName") {
+              val cityAccessor = Person.address / Address.city
+              assertTrue(
+                cityAccessor.recordType == "Person",
+                cityAccessor.fieldName  == "address.city"
+              )
+            },
+            test("/ chains getter functions correctly") {
+              val cityAccessor = Person.address / Address.city
+              assertTrue(cityAccessor.get(john) == "Tokyo")
+            },
+            test("deeply nested path composes transitively") {
+              case class World(person: Person)
+              val worldPerson = FieldAccessor[World, Person]("World", "person", _.person)
+              val cityInWorld = worldPerson / Person.address / Address.city
+              assertTrue(
+                cityInWorld.fieldName == "person.address.city",
+                cityInWorld.get(World(john)) == "Tokyo"
+              )
+            }
+          ),
+          suite("nested query evaluation")(
+            test("=== on nested field matches correctly") {
+              val q = Person.address / Address.city === "Tokyo"
+              assertTrue(
+                QueryInterpreter.evaluate(q, john),
+                !QueryInterpreter.evaluate(q, alice)
+              )
+            },
+            test("combines nested and top-level conditions with &&") {
+              val q = (Person.name === "John Doe") && (Person.address / Address.city === "Tokyo")
+              assertTrue(
+                QueryInterpreter.evaluate(q, john),
+                !QueryInterpreter.evaluate(q, alice),
+                !QueryInterpreter.evaluate(q, charlie)
+              )
+            },
+            test("combines nested conditions with ||") {
+              val q = (Person.address / Address.city === "Tokyo") ||
+                      (Person.address / Address.city === "London")
+              assertTrue(
+                QueryInterpreter.evaluate(q, john),
+                QueryInterpreter.evaluate(q, alice),
+                !QueryInterpreter.evaluate(q, Person("Bob", 20, Address("US", "NYC", "5th Ave")))
+              )
+            },
+            test("contains on nested string field") {
+              val q = (Person.address / Address.city).contains("ok")
+              assertTrue(
+                QueryInterpreter.evaluate(q, john),   // "Tokyo" contains "ok"
+                !QueryInterpreter.evaluate(q, alice)  // "London" does not
+              )
+            },
+            test("> on nested numeric field") {
+              case class Order(id: String, item: OrderItem)
+              case class OrderItem(name: String, price: Double)
+              val itemPrice = FieldAccessor[Order, Double](
+                "Order", "item.price", o => o.item.price
+              )
+              val q = itemPrice > 20.0
+              assertTrue(
+                QueryInterpreter.evaluate(q, Order("1", OrderItem("Widget", 49.99))),
+                !QueryInterpreter.evaluate(q, Order("2", OrderItem("Bolt", 0.99)))
+              )
+            }
+          ),
+          suite("/ accessor equality")(
+            test("same path accessors are equal") {
+              val p1 = Person.address / Address.city
+              val p2 = Person.address / Address.city
+              assertTrue(p1 == p2)
+            },
+            test("different path accessors are not equal") {
+              assertTrue((Person.address / Address.city) != (Person.address / Address.street))
+            }
+          )
+        )
+    }
+
+    // ── Example Showcase ──────────────────────────────────────────────────────
+
+    object Exercise2Example extends ZIOAppDefault {
+
+      val people: List[Person] = List(
+        Person("John Doe", 35, Address("Japan", "Tokyo", "Shibuya")),
+        Person("Alice",    28, Address("UK",    "London", "Baker St")),
+        Person("Bob",      42, Address("Japan", "Tokyo", "Harajuku")),
+        Person("Carol",    31, Address("US",    "NYC",   "5th Ave"))
+      )
+
+      def find(query: Query[Person]): List[Person] =
+        people.filter(p => QueryInterpreter.evaluate(query, p))
+
+      def run: ZIO[Any, Throwable, Unit] =
+        for {
+          _ <- Console.printLine("=== Nested Query DSL Example ===")
+          _ <- Console.printLine("\nPeople in Tokyo:")
+          _ <- ZIO.foreach(find(Person.address / Address.city === "Tokyo"))(p =>
+                 Console.printLine(s"  ${p.name}")
+               )
+          _ <- Console.printLine("\nJohn Doe in Tokyo:")
+          _ <- ZIO.foreach(
+                 find((Person.name === "John Doe") && (Person.address / Address.city === "Tokyo"))
+               )(p => Console.printLine(s"  ${p.name}"))
+          _ <- Console.printLine("\nPeople in Japan OR older than 35:")
+          _ <- ZIO.foreach(
+                 find((Person.address / Address.country === "Japan") || (Person.age > 35))
+               )(p => Console.printLine(s"  ${p.name} (${p.age}, ${p.address.city})"))
+        } yield ()
+    }
+  }
 
   /**
    *   3. Write a CSV codec that supports encoding and decoding of record types.
