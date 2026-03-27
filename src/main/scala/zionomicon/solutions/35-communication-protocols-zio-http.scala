@@ -50,16 +50,17 @@ package CommunicationProtocolsZIOHTTP {
      */
     object BookRepo {
       def inMemory: ZIO[Any, Nothing, BookRepo] =
-        Ref.make(Map.empty[String, List[Book]]).map { ref =>
+        Ref.make(List.empty[Book]).map { ref =>
           new BookRepo {
             override def add(book: Book): ZIO[Any, Nothing, Unit] =
-              ref.update { books =>
-                val key = book.title.toLowerCase
-                books.updated(key, books.get(key).getOrElse(List()) :+ book)
-              }
+              ref.update(_ :+ book)
 
-            override def find(title: String): ZIO[Any, Nothing, List[Book]] =
-              ref.get.map(_.getOrElse(title.toLowerCase, List()))
+            override def find(query: String): ZIO[Any, Nothing, List[Book]] =
+              ref.get.map { books =>
+                books.filter(
+                  _.title.toLowerCase.contains(query.toLowerCase)
+                )
+              }
           }
         }
     }
