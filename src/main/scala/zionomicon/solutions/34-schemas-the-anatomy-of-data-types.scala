@@ -19,11 +19,15 @@ package SchemaTheAnatomyOfDataTypes {
      * the value from a concrete record; it is intentionally excluded from
      * equality so that two accessors for the same field are always equal
      * regardless of how the getter was constructed.
+     *
+     * Declared as a plain `class` (not `case class`) to avoid the misleading
+     * generated `copy`/`unapply` methods that would expose `get` as a
+     * structural field, contradicting our custom equality semantics.
      */
-    case class FieldAccessor[S, A](
-      recordType: String,
-      fieldName: String,
-      get: S => A
+    final class FieldAccessor[S, A](
+      val recordType: String,
+      val fieldName: String,
+      val get: S => A
     ) { self =>
 
       def ===(value: A): Query[S] = Query.Equal(self, value)
@@ -42,7 +46,6 @@ package SchemaTheAnatomyOfDataTypes {
       def <=(value: A)(implicit ord: Ordering[A]): Query[S] =
         Query.LessThanOrEqual(self, value, ord)
 
-      // Field identity is (recordType, fieldName); `get` is excluded.
       override def equals(obj: Any): Boolean = obj match {
         case other: FieldAccessor[_, _] =>
           recordType == other.recordType && fieldName == other.fieldName
@@ -55,6 +58,13 @@ package SchemaTheAnatomyOfDataTypes {
     }
 
     object FieldAccessor {
+
+      def apply[S, A](
+        recordType: String,
+        fieldName: String,
+        get: S => A
+      ): FieldAccessor[S, A] =
+        new FieldAccessor(recordType, fieldName, get)
 
       implicit class StringOps[S](val self: FieldAccessor[S, String])
           extends AnyVal {
@@ -311,9 +321,89 @@ package SchemaTheAnatomyOfDataTypes {
                 // alice.age=42: !(42>40) = !true = false  →  !false = true
                 !QueryInterpreter.evaluate(!(Person.age > 40), alice)
               )
+            },
+            test("contains is case-sensitive") {
+              assertTrue(
+                QueryInterpreter.evaluate(Person.name.contains("John"), john),
+                !QueryInterpreter.evaluate(Person.name.contains("john"), john)
+              )
+            },
+            test("|| is true when both conditions hold") {
+              val both = Person("John Doe", 50)
+              val q    = (Person.name === "John Doe") || (Person.age > 40)
+              assertTrue(QueryInterpreter.evaluate(q, both))
+            },
+            test("&& is false when both conditions fail") {
+              val q = (Person.name === "John Doe") && (Person.age > 18)
+              assertTrue(!QueryInterpreter.evaluate(q, Person("Eve", 15)))
+            }
+          ),
+          suite("FieldAccessor equality semantics")(
+            test("same (recordType, fieldName) are equal regardless of getter") {
+              val a1 = FieldAccessor[Person, String]("Person", "name", _.name)
+              val a2 = FieldAccessor[Person, String]("Person", "name", p => p.name)
+              assertTrue(a1 == a2, a1.hashCode == a2.hashCode)
+            },
+            test("different fieldName means not equal") {
+              assertTrue(Person.name != Person.age)
+            },
+            test("different recordType means not equal") {
+              val other = FieldAccessor[Person, String]("Employee", "name", _.name)
+              assertTrue(Person.name != other)
+            }
+          ),
+          suite("interpreter works on a second domain type")(
+            test("evaluates queries over Product records") {
+              case class Product(sku: String, price: Double)
+              val sku   = FieldAccessor[Product, String]("Product", "sku", _.sku)
+              val price = FieldAccessor[Product, Double]("Product", "price", _.price)
+
+              val products = List(
+                Product("A001", 9.99),
+                Product("B002", 49.99),
+                Product("A003", 19.99)
+              )
+
+              val query   = sku.contains("A") && (price > 15.0)
+              val results = products.filter(p => QueryInterpreter.evaluate(query, p))
+
+              assertTrue(results == List(Product("A003", 19.99)))
             }
           )
         )
+    }
+
+    // ── Example Showcase ─────────────────────────────────────────────────────
+
+    object Exercise1Example extends ZIOAppDefault {
+
+      val people: List[Person] = List(
+        Person("Alice", 28),
+        Person("Bob", 17),
+        Person("John Doe", 35),
+        Person("Carol", 42),
+        Person("Dave", 35)
+      )
+
+      def find(query: Query[Person]): List[Person] =
+        people.filter(p => QueryInterpreter.evaluate(query, p))
+
+      def run: ZIO[Any, Throwable, Unit] =
+        for {
+          _ <- Console.printLine("=== Query DSL Example ===")
+          _ <- Console.printLine("\nAll adults (age >= 18):")
+          _ <- ZIO.foreach(find(Person.age >= 18))(p => Console.printLine(s"  $p"))
+          _ <- Console.printLine("\nPeople in their 30s (age >= 30 && age <= 39):")
+          _ <- ZIO.foreach(find((Person.age >= 30) && (Person.age <= 39)))(p =>
+                 Console.printLine(s"  $p")
+               )
+          _ <- Console.printLine("\nPeople named 'John' or older than 40:")
+          _ <- ZIO.foreach(find(Person.name.contains("John") || (Person.age > 40)))(p =>
+                 Console.printLine(s"  $p")
+               )
+          _ <- Console.printLine("\nMinors (NOT age >= 18):")
+          _ <- ZIO.foreach(find(!(Person.age >= 18)))(p => Console.printLine(s"  $p"))
+        } yield ()
     }
   }
 
