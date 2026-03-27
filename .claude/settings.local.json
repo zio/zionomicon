@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sbtn --client \"++2.13; compile\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(sbtn --client \"scalafmtAll\")"
+    ]
+  }
+}

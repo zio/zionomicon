@@ -19,10 +19,10 @@ package CommunicationProtocolsZIOHTTP {
   package ProtobufEncoding {}
 
   /**
-   *   2. Implement a HandlerAspect middleware that logs the processing time
-   *      for each request in milliseconds. Similar to the duration protocol
-   *      stack example, but using the HandlerAspect API with proper
-   *      composition semantics.
+   *   2. Implement a HandlerAspect middleware that logs the processing time for
+   *      each request in milliseconds. Similar to the duration protocol stack
+   *      example, but using the HandlerAspect API with proper composition
+   *      semantics.
    *
    * {{{
    * def requestDurationLogging: HandlerAspect[Any] = ???
