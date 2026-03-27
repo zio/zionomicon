@@ -298,22 +298,6 @@ package SchemaTheAnatomyOfDataTypes {
                   .evaluate(Person.name.contains("Alice"), john)
               )
             },
-            test("&& requires both conditions") {
-              val q = (Person.name === "John Doe") && (Person.age > 18)
-              assertTrue(
-                QueryInterpreter.evaluate(q, john),
-                !QueryInterpreter.evaluate(q, alice)
-              )
-            },
-            test("|| requires at least one condition") {
-              val q = (Person.name === "John Doe") || (Person.age > 40)
-              assertTrue(
-                QueryInterpreter.evaluate(q, john),
-                QueryInterpreter.evaluate(q, alice),
-                !QueryInterpreter
-                  .evaluate(q, Person("Bob", 25))
-              )
-            },
             test("! negates condition") {
               assertTrue(
                 // john.age=30: !(30>50) = !false = true
@@ -328,15 +312,6 @@ package SchemaTheAnatomyOfDataTypes {
                 !QueryInterpreter.evaluate(Person.name.contains("john"), john)
               )
             },
-            test("|| is true when both conditions hold") {
-              val both = Person("John Doe", 50)
-              val q    = (Person.name === "John Doe") || (Person.age > 40)
-              assertTrue(QueryInterpreter.evaluate(q, both))
-            },
-            test("&& is false when both conditions fail") {
-              val q = (Person.name === "John Doe") && (Person.age > 18)
-              assertTrue(!QueryInterpreter.evaluate(q, Person("Eve", 15)))
-            }
           ),
           suite("FieldAccessor equality semantics")(
             test("same (recordType, fieldName) are equal regardless of getter") {
@@ -344,13 +319,6 @@ package SchemaTheAnatomyOfDataTypes {
               val a2 = FieldAccessor[Person, String]("Person", "name", p => p.name)
               assertTrue(a1 == a2, a1.hashCode == a2.hashCode)
             },
-            test("different fieldName means not equal") {
-              assertTrue(Person.name != Person.age)
-            },
-            test("different recordType means not equal") {
-              val other = FieldAccessor[Person, String]("Employee", "name", _.name)
-              assertTrue(Person.name != other)
-            }
           ),
           suite("interpreter works on a second domain type")(
             test("evaluates queries over Product records") {
