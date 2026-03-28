@@ -29,8 +29,16 @@ package ObservabilityMetrics {
     object BusinessLogicApp extends ZIOAppDefault {
       private val effect = ZIO.debug("Processing request...")
 
+      // Counter metric with tags for better categorization
+      private val taggedCounter =
+        Metric
+          .counter("total_requests", "Total number of requests processed")
+          .fromConst(1L)
+          .tagged("service", "business-logic")
+          .tagged("environment", "production")
+
       def run =
-        (effect @@ Metric.counter("total_requests").fromConst(1L))
+        (effect @@ taggedCounter)
           .repeat(Schedule.exponential(100.milliseconds, 2.0))
     }
 
@@ -63,8 +71,17 @@ package ObservabilityMetrics {
 
       private val effect = ZIO.debug("Processing request...")
 
+      // Counter metric with tags for categorization and filtering
+      private val taggedCounter =
+        Metric
+          .counter("total_requests", "Total number of requests processed")
+          .fromConst(1L)
+          .tagged("service", "business-logic")
+          .tagged("environment", "production")
+          .tagged("version", "1.0")
+
       def run =
-        (effect @@ Metric.counter("total_requests").fromConst(1L))
+        (effect @@ taggedCounter)
           .repeat(Schedule.exponential(100.milliseconds, 2.0))
     }
 
