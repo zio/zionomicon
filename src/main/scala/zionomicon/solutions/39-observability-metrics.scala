@@ -13,83 +13,66 @@ package ObservabilityMetrics {
     import zio._
     import zio.metrics._
 
-    // Step 1: Create a metrics client application that periodically publishes metrics
+    // Step 1: Create a metrics client application
+    // This application periodically captures and logs metrics snapshots
     object MetricsClientApp extends ZIOAppDefault {
-      def run =
-        for {
-          _ <- ZIO.logInfo("Metrics client started")
-          _ <-
-            ZIO.never.onInterrupt(_ => ZIO.logInfo("Metrics client stopped!"))
-        } yield ()
-    }
-
-    // Step 2: Create a main application with business logic that tracks metrics
-    object BusinessLogicApp extends ZIOAppDefault {
-      private val effect = ZIO.debug("Processing request...")
-
-      private val mainApp =
-        (effect @@ Metric.counter("total_requests").fromConst(1L))
-          .repeat(Schedule.exponential(100.milliseconds, 2.0))
-
-      def run = mainApp
-    }
-
-    // Step 3: Compose both applications together
-    // This demonstrates how to structure a ZIO application that runs both
-    // the metrics client and business logic concurrently
-    object ComposedMetricsApp extends ZIOAppDefault {
-      private val businessLogic =
-        (ZIO.debug("Processing...") @@ Metric
-          .counter("total_requests")
-          .fromConst(1L))
-          .repeat(Schedule.exponential(100.milliseconds, 2.0))
-
       private val metricsCollection: ZIO[Any, Nothing, Unit] =
-        for {
-          _        <- ZIO.logInfo("Metrics collector started")
-          snapshot <- ZIO.metrics
-          _        <- snapshot.prettyPrint.debug("Current metrics")
-          _        <- ZIO.sleep(5.seconds)
-        } yield ()
-
-      private val metricsCollector: ZIO[Any, Nothing, Unit] =
-        metricsCollection.repeat(Schedule.fixed(5.seconds)).forkDaemon.unit
-
-      def run =
-        for {
-          _ <- metricsCollector
-          _ <- businessLogic
-        } yield ()
-    }
-
-    // Alternative composition pattern: Using separate modules
-    object ComposedAppsExample {
-      // Metrics collection as a reusable effect
-      def metricsCollectionEffect: ZIO[Any, Nothing, Unit] =
         for {
           snapshot <- ZIO.metrics
           _        <- snapshot.prettyPrint.debug("Metrics snapshot")
         } yield ()
 
-      // Business logic as a separate function
-      def businessLogicEffect: ZIO[Any, Nothing, Unit] =
-        (ZIO.debug("Request handled") @@ Metric
-          .counter("requests_processed")
-          .fromConst(1L))
-
-      // Composed application that runs both in parallel
-      object MainApp extends ZIOAppDefault {
-        def run =
-          for {
-            _ <- metricsCollectionEffect
-                   .repeat(Schedule.fixed(5.seconds))
-                   .forkDaemon
-            _ <- businessLogicEffect.repeat(
-                   Schedule.exponential(100.milliseconds, 2.0)
-                 )
-          } yield ()
-      }
+      def run = metricsCollection.repeat(Schedule.fixed(5.seconds))
     }
+
+    // Step 2: Create a business logic application that tracks metrics
+    object BusinessLogicApp extends ZIOAppDefault {
+      private val effect = ZIO.debug("Processing request...")
+
+      def run =
+        (effect @@ Metric.counter("total_requests").fromConst(1L))
+          .repeat(Schedule.exponential(100.milliseconds, 2.0))
+    }
+
+    // Step 3: Compose both applications together using the <> operator
+    // The <> operator combines the layers and runs both applications in parallel
+    object ComposedMetricsApp
+        extends ZIOApp.Proxy(
+          MetricsClientApp <> BusinessLogicApp
+        )
+
+    // Alternative: More complex example with custom bootstrap configuration
+    object MetricsClientAppWithConfig extends ZIOAppDefault {
+      // You can customize the bootstrap layer with specific configurations
+      override val bootstrap: ZLayer[Any, Any, Any] =
+        ZLayer.empty
+
+      private val metricsCollection: ZIO[Any, Nothing, Unit] =
+        for {
+          snapshot <- ZIO.metrics
+          _        <- snapshot.prettyPrint.debug("Metrics snapshot")
+        } yield ()
+
+      def run = metricsCollection.repeat(Schedule.fixed(5.seconds))
+    }
+
+    object BusinessLogicAppWithConfig extends ZIOAppDefault {
+      // You can also customize the business logic app's bootstrap
+      override val bootstrap: ZLayer[Any, Any, Any] =
+        ZLayer.empty
+
+      private val effect = ZIO.debug("Processing request...")
+
+      def run =
+        (effect @@ Metric.counter("total_requests").fromConst(1L))
+          .repeat(Schedule.exponential(100.milliseconds, 2.0))
+    }
+
+    // Compose with custom configurations using the <> operator
+    object ComposedMetricsAppWithConfig
+        extends ZIOApp.Proxy(
+          MetricsClientAppWithConfig <> BusinessLogicAppWithConfig
+        )
   }
 
 }
