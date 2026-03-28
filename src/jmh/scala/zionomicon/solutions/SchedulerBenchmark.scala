@@ -17,6 +17,42 @@ import org.openjdk.jmh.annotations.{
 }
 import java.util.concurrent.TimeUnit
 
+// =============================================================================
+// Benchmark results
+// Environment: JDK 21.0.9 (OpenJDK 64-Bit Server VM), NixOS, Linux 6.9.7
+// Run command: sbt "jmh:run -i 5 -wi 3 -f 1 .*SchedulerBenchmark.*"
+// Warmup: 3 iterations × 2 s  |  Measurement: 5 iterations × 3 s  |  Fork: 1
+//
+// Benchmark                         Mode  Cnt     Score     Error  Units
+// SchedulerBenchmark.zScheduler    thrpt    5  1745.462 ± 600.145  ops/s
+// SchedulerBenchmark.kyoScheduler  thrpt    5  1181.294 ± 707.480  ops/s
+//
+// ZScheduler is ~48% faster on this workload (1745 vs 1181 ops/s).
+//
+// Analysis
+// --------
+// 1. Error bars are wide (±600 and ±707) — the confidence intervals overlap
+//    substantially, so the difference is directional but not definitive at
+//    this sample size.  Running with more forks (-f 3) and more iterations
+//    would tighten them.
+//
+// 2. The workload is ZIO-native.  ZIO.foreachParDiscard with 1 000 short-lived
+//    fibers plays to ZScheduler's strengths — it is designed specifically to
+//    minimise ZIO fiber fork/join overhead.  The Kyo scheduler is designed for
+//    Kyo's own fiber model; wrapping it via Executor.fromJavaExecutor adds a
+//    thin translation layer and loses Kyo-specific optimisations.
+//
+// 3. Kyo's first warmup iteration is noticeably slow (842 vs 748 ops/s for
+//    ZScheduler) but it stabilises faster in subsequent iterations — its
+//    adaptive concurrency regulator takes a few rounds to calibrate.
+//
+// 4. This is not the workload Kyo was designed for.  Kyo's scheduler shines
+//    when paired with its own async/structured-concurrency primitives.  A
+//    fairer comparison would run equivalent workloads natively in both
+//    runtimes rather than forcing Kyo to serve as a drop-in executor for
+//    ZIO fibers.
+// =============================================================================
+
 @State(Scope.Benchmark)
 @BenchmarkMode(Array(Mode.Throughput))
 @OutputTimeUnit(TimeUnit.SECONDS)
