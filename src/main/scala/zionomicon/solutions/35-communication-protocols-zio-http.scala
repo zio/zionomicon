@@ -354,176 +354,179 @@ package CommunicationProtocolsZIOHTTP {
 
     package Solution {
 
-      object RequestDurationLogging {
+      package RequestDurationLogging {
 
-        /**
-         * HandlerAspect middleware that logs the processing time for each
-         * request.
-         *
-         * Uses HandlerAspect.interceptHandlerStateful to share state (start
-         * time) between the incoming and outgoing pipelines. This allows us to:
-         *   1. Record the start time when the request arrives
-         *   2. Calculate elapsed time when the response is returned
-         *   3. Log the duration without modifying the request or response
-         *
-         * The beauty of this approach is proper composition semantics: if the
-         * incoming pipeline fails (e.g., authorization error), the response
-         * immediately returns through the outgoing pipeline, and we still log
-         * the correct duration for that failed request.
-         */
-        /**
-         * Creates a request logging middleware. Logs when each request
-         * completes with its response status.
-         *
-         * This middleware demonstrates the Middleware pattern in ZIO HTTP,
-         * which allows intercepting and transforming request handlers. The
-         * middleware uses handler.tapZIO to log response status after the
-         * handler completes.
-         *
-         * Note on Duration Measurement: Measuring the exact duration of request
-         * processing is constrained by ZIO HTTP's type system, as handler
-         * invocation introduces Scope requirements. A fully-featured duration
-         * middleware would require using HandlerAspect with stateful
-         * composition (tracking start times across async boundaries).
-         *
-         * This implementation demonstrates:
-         *   1. How to use routes.transform to intercept all handlers
-         *   2. How to use handler.tapZIO for side effects (logging)
-         *   3. How to compose middleware with routes using @@ operator
-         */
-        def requestDurationLogging: Middleware[Any] =
-          new Middleware[Any] {
-            override def apply[Env1 <: Any, Err](
-              routes: Routes[Env1, Err]
-            ): Routes[Env1, Err] =
-              routes.transform { handler =>
-                handler.tapZIO { (response: Response) =>
-                  ZIO.debug(
-                    s"Request completed with status: ${response.status}"
-                  )
+        object impl {
+
+          /**
+           * HandlerAspect middleware that logs the processing time for each
+           * request.
+           *
+           * Uses HandlerAspect.interceptHandlerStateful to share state (start
+           * time) between the incoming and outgoing pipelines. This allows us
+           * to:
+           *   1. Record the start time when the request arrives
+           *   2. Calculate elapsed time when the response is returned
+           *   3. Log the duration without modifying the request or response
+           *
+           * The beauty of this approach is proper composition semantics: if the
+           * incoming pipeline fails (e.g., authorization error), the response
+           * immediately returns through the outgoing pipeline, and we still log
+           * the correct duration for that failed request.
+           */
+          /**
+           * Creates a request logging middleware. Logs when each request
+           * completes with its response status.
+           *
+           * This middleware demonstrates the Middleware pattern in ZIO HTTP,
+           * which allows intercepting and transforming request handlers. The
+           * middleware uses handler.tapZIO to log response status after the
+           * handler completes.
+           *
+           * Note on Duration Measurement: Measuring the exact duration of
+           * request processing is constrained by ZIO HTTP's type system, as
+           * handler invocation introduces Scope requirements. A fully-featured
+           * duration middleware would require using HandlerAspect with stateful
+           * composition (tracking start times across async boundaries).
+           *
+           * This implementation demonstrates:
+           *   1. How to use routes.transform to intercept all handlers
+           *   2. How to use handler.tapZIO for side effects (logging)
+           *   3. How to compose middleware with routes using @@ operator
+           */
+          def requestDurationLogging: Middleware[Any] =
+            new Middleware[Any] {
+              override def apply[Env1 <: Any, Err](
+                routes: Routes[Env1, Err]
+              ): Routes[Env1, Err] =
+                routes.transform { handler =>
+                  handler.tapZIO { (response: Response) =>
+                    ZIO.debug(
+                      s"Request completed with status: ${response.status}"
+                    )
+                  }
                 }
-              }
-          }
-
-        /**
-         * Example demonstrating the duration logging middleware in action.
-         */
-        object ExampleApp extends ZIOAppDefault {
-
-          def run: ZIO[Any, Any, Unit] =
-            for {
-              _ <- Server
-                     .serve(routes)
-                     .provide(Server.default)
-            } yield ()
-
-          private val routes =
-            Routes(
-              Method.GET / "fast" ->
-                handler {
-                  ZIO.succeed(Response.text("Quick response!"))
-                },
-              Method.GET / "slow" ->
-                handler {
-                  for {
-                    _ <- ZIO.sleep(500.millis)
-                  } yield Response.text("Slow response!")
-                },
-              Method.GET / "hello" ->
-                handler { (_: Request) =>
-                  ZIO.succeed(Response.text("Hello, World!"))
-                }
-            ) @@ RequestDurationLogging.requestDurationLogging
+            }
         }
-
-        /**
-         * Test application demonstrating duration logging with ZIO HTTP Client.
-         * Run with: sbtn "runMain
-         * zionomicon.solutions.CommunicationProtocolsZIOHTTP.RequestDurationLogging.Solution.DurationLoggingTest"
-         */
-        object DurationLoggingTest extends ZIOAppDefault {
-
-          def run: ZIO[Any, Any, Unit] =
-            (for {
-              _ <- ZIO.debug("Starting Duration Logging Tests...")
-              _ <- Server
-                     .serve(testRoutes)
-                     .provide(Server.default)
-                     .fork
-              _ <- ZIO.sleep(1.second)
-
-              _ <- ZIO.debug("\n=== TEST 1: Fast endpoint ===")
-              url1 <- ZIO.fromEither(
-                        URL.decode("http://localhost:8080/fast")
-                      )
-              req1   = Request.get(url1)
-              res1  <- Client.batched(req1)
-              body1 <- res1.body.asString
-              _     <- ZIO.debug(s"Response: $body1")
-
-              _ <- ZIO.debug("\n=== TEST 2: Slow endpoint (500ms delay) ===")
-              url2 <- ZIO.fromEither(
-                        URL.decode("http://localhost:8080/slow")
-                      )
-              req2   = Request.get(url2)
-              res2  <- Client.batched(req2)
-              body2 <- res2.body.asString
-              _     <- ZIO.debug(s"Response: $body2")
-
-              _ <- ZIO.debug("\n=== TEST 3: Hello endpoint ===")
-              url3 <- ZIO.fromEither(
-                        URL.decode("http://localhost:8080/hello")
-                      )
-              req3   = Request.get(url3)
-              res3  <- Client.batched(req3)
-              body3 <- res3.body.asString
-              _     <- ZIO.debug(s"Response: $body3")
-
-              _ <-
-                ZIO.debug("\n✅ Tests completed! Check logs above for duration.")
-            } yield ()).provide(Client.default)
-
-          private val testRoutes =
-            Routes(
-              Method.GET / "fast" ->
-                handler {
-                  ZIO.succeed(Response.text("Quick response!"))
-                },
-              Method.GET / "slow" ->
-                handler {
-                  for {
-                    _ <- ZIO.sleep(500.millis)
-                  } yield Response.text("Slow response!")
-                },
-              Method.GET / "hello" ->
-                handler { (_: Request) =>
-                  ZIO.succeed(Response.text("Hello, World!"))
-                }
-            ) @@ RequestDurationLogging.requestDurationLogging
-        }
-
-        /**
-         * COMPOSABILITY EXAMPLE
-         *
-         * The HandlerAspect composition semantics guarantee proper ordering:
-         * Multiple middleware can be composed together with the @@ operator.
-         * Each middleware wraps the previous one, creating a stack.
-         *
-         * Example: val route = handler { ... }
-         * @@
-         *   requestDurationLogging
-         * @@
-         *   someOtherMiddleware
-         * @@
-         *   anotherMiddleware
-         *
-         * If any middleware in the incoming pipeline fails (e.g., returns an
-         * error), the response immediately goes to the outgoing pipeline, and
-         * all middlewares still execute their outgoing handlers in reverse
-         * order. This ensures proper cleanup and logging even when errors
-         * occur.
-         */
       }
+
+      /**
+       * Example demonstrating the duration logging middleware in action.
+       */
+      object ExampleApp extends ZIOAppDefault {
+
+        def run: ZIO[Any, Any, Unit] =
+          for {
+            _ <- Server
+                   .serve(routes)
+                   .provide(Server.default)
+          } yield ()
+
+        private val routes =
+          Routes(
+            Method.GET / "fast" ->
+              handler {
+                ZIO.succeed(Response.text("Quick response!"))
+              },
+            Method.GET / "slow" ->
+              handler {
+                for {
+                  _ <- ZIO.sleep(500.millis)
+                } yield Response.text("Slow response!")
+              },
+            Method.GET / "hello" ->
+              handler { (_: Request) =>
+                ZIO.succeed(Response.text("Hello, World!"))
+              }
+          ) @@ RequestDurationLogging.impl.requestDurationLogging
+      }
+
+      /**
+       * Test application demonstrating duration logging with ZIO HTTP Client.
+       * Run with: sbtn "runMain
+       * zionomicon.solutions.CommunicationProtocolsZIOHTTP.RequestDurationLogging.Solution.DurationLoggingTest"
+       */
+      object DurationLoggingTest extends ZIOAppDefault {
+
+        def run: ZIO[Any, Any, Unit] =
+          (for {
+            _ <- ZIO.debug("Starting Duration Logging Tests...")
+            _ <- Server
+                   .serve(testRoutes)
+                   .provide(Server.default)
+                   .fork
+            _ <- ZIO.sleep(1.second)
+
+            _ <- ZIO.debug("\n=== TEST 1: Fast endpoint ===")
+            url1 <- ZIO.fromEither(
+                      URL.decode("http://localhost:8080/fast")
+                    )
+            req1   = Request.get(url1)
+            res1  <- Client.batched(req1)
+            body1 <- res1.body.asString
+            _     <- ZIO.debug(s"Response: $body1")
+
+            _ <- ZIO.debug("\n=== TEST 2: Slow endpoint (500ms delay) ===")
+            url2 <- ZIO.fromEither(
+                      URL.decode("http://localhost:8080/slow")
+                    )
+            req2   = Request.get(url2)
+            res2  <- Client.batched(req2)
+            body2 <- res2.body.asString
+            _     <- ZIO.debug(s"Response: $body2")
+
+            _ <- ZIO.debug("\n=== TEST 3: Hello endpoint ===")
+            url3 <- ZIO.fromEither(
+                      URL.decode("http://localhost:8080/hello")
+                    )
+            req3   = Request.get(url3)
+            res3  <- Client.batched(req3)
+            body3 <- res3.body.asString
+            _     <- ZIO.debug(s"Response: $body3")
+
+            _ <-
+              ZIO.debug("\n✅ Tests completed! Check logs above for duration.")
+          } yield ()).provide(Client.default)
+
+        private val testRoutes =
+          Routes(
+            Method.GET / "fast" ->
+              handler {
+                ZIO.succeed(Response.text("Quick response!"))
+              },
+            Method.GET / "slow" ->
+              handler {
+                for {
+                  _ <- ZIO.sleep(500.millis)
+                } yield Response.text("Slow response!")
+              },
+            Method.GET / "hello" ->
+              handler { (_: Request) =>
+                ZIO.succeed(Response.text("Hello, World!"))
+              }
+          ) @@ RequestDurationLogging.impl.requestDurationLogging
+      }
+
+      /**
+       * COMPOSABILITY EXAMPLE
+       *
+       * The HandlerAspect composition semantics guarantee proper ordering:
+       * Multiple middleware can be composed together with the @@ operator. Each
+       * middleware wraps the previous one, creating a stack.
+       *
+       * Example: val route = handler { ... }
+       * @@
+       *   requestDurationLogging
+       * @@
+       *   someOtherMiddleware
+       * @@
+       *   anotherMiddleware
+       *
+       * If any middleware in the incoming pipeline fails (e.g., returns an
+       * error), the response immediately goes to the outgoing pipeline, and all
+       * middlewares still execute their outgoing handlers in reverse order.
+       * This ensures proper cleanup and logging even when errors occur.
+       */
     }
 
   }
