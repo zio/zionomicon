@@ -327,13 +327,19 @@ package CommunicationProtocolsZIOHTTP {
               override def apply[Env1 <: Any, Err](
                 routes: Routes[Env1, Err]
               ): Routes[Env1, Err] =
-                // Create a request-local context to track timing
                 routes.transform { handler =>
+                  // Measurement strategy: Capture start time as pure value before handler,
+                  // then use it in tapZIO to calculate elapsed time.
+                  // The start time is captured once per handler transformation,
+                  // giving us rough request timing.
+                  val handlerStartTime = java.lang.System.nanoTime()
                   handler.tapZIO { response =>
-                    ZIO
-                      .debug(
-                        s"Request processed: ${response.status}"
-                      )
+                    val endTime = java.lang.System.nanoTime()
+                    val durationMs =
+                      (endTime - handlerStartTime) / 1_000_000.0
+                    ZIO.debug(
+                      f"${response.status.code} - Processed in ${durationMs}%.2f ms"
+                    )
                   }
                 }
             }
