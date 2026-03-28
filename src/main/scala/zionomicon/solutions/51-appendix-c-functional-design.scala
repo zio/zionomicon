@@ -109,6 +109,50 @@ object AppendixCFunctionalDesign {
       val cache = scala.collection.mutable.Map[A, B]()
       a => cache.getOrElseUpdate(a, f(a))
     }
+
+    object MemoizationDemo extends ZIOAppDefault {
+
+      val run = for {
+        // Create an expensive function that computes factorial and prints when called
+        _ <- ZIO.attempt(println("=== Memoization Demo ===\n"))
+
+        // Non-memoized version
+        _ <- ZIO.attempt(println("1. Non-memoized factorial calls:"))
+        factorial = (n: Int) => {
+          println(s"   Computing factorial($n)...")
+          (1 to n).foldLeft(1L)(_ * _)
+        }
+
+        result1 <- ZIO.attempt(factorial(5))
+        _ <- ZIO.attempt(println(s"   Result: $result1"))
+        result2 <- ZIO.attempt(factorial(5))
+        _ <- ZIO.attempt(println(s"   Result: $result2"))
+        _ <- ZIO.attempt(println("   Notice: Function was called twice and recomputed\n"))
+
+        // Memoized version
+        _ <- ZIO.attempt(println("2. Memoized factorial calls:"))
+        memoizedFactorial = memoize((n: Int) => {
+          println(s"   Computing factorial($n)...")
+          (1 to n).foldLeft(1L)(_ * _)
+        })
+
+        result3 <- ZIO.attempt(memoizedFactorial(5))
+        _ <- ZIO.attempt(println(s"   Result: $result3"))
+        result4 <- ZIO.attempt(memoizedFactorial(5))
+        _ <- ZIO.attempt(println(s"   Result: $result4"))
+        _ <- ZIO.attempt(println("   Notice: Function computation only happened once!\n"))
+
+        // Multiple different arguments
+        _ <- ZIO.attempt(println("3. Memoized with different arguments:"))
+        result5 <- ZIO.attempt(memoizedFactorial(6))
+        _ <- ZIO.attempt(println(s"   Result for 6: $result5"))
+        result6 <- ZIO.attempt(memoizedFactorial(5))
+        _ <- ZIO.attempt(println(s"   Result for 5: $result6 (cached)"))
+        result7 <- ZIO.attempt(memoizedFactorial(6))
+        _ <- ZIO.attempt(println(s"   Result for 6: $result7 (cached)"))
+        _ <- ZIO.attempt(println("\n=== Demo Complete ==="))
+      } yield ()
+    }
   }
 
   /**
