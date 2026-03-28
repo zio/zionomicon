@@ -49,47 +49,6 @@ package ObservabilityMetrics {
           MetricsClientApp <> BusinessLogicApp
         )
 
-    // Alternative: More complex example with custom bootstrap configuration
-    object MetricsClientAppWithConfig extends ZIOAppDefault {
-      // You can customize the bootstrap layer with specific configurations
-      override val bootstrap: ZLayer[Any, Any, Any] =
-        ZLayer.empty
-
-      private val metricsCollection: ZIO[Any, Nothing, Unit] =
-        for {
-          snapshot <- ZIO.metrics
-          _        <- snapshot.prettyPrint.debug("Metrics snapshot")
-        } yield ()
-
-      def run = metricsCollection.repeat(Schedule.fixed(5.seconds))
-    }
-
-    object BusinessLogicAppWithConfig extends ZIOAppDefault {
-      // You can also customize the business logic app's bootstrap
-      override val bootstrap: ZLayer[Any, Any, Any] =
-        ZLayer.empty
-
-      private val effect = ZIO.debug("Processing request...")
-
-      // Counter metric with tags for categorization and filtering
-      private val taggedCounter =
-        Metric
-          .counter("total_requests", "Total number of requests processed")
-          .fromConst(1L)
-          .tagged("service", "business-logic")
-          .tagged("environment", "production")
-          .tagged("version", "1.0")
-
-      def run =
-        (effect @@ taggedCounter)
-          .repeat(Schedule.exponential(100.milliseconds, 2.0))
-    }
-
-    // Compose with custom configurations using the <> operator
-    object ComposedMetricsAppWithConfig
-        extends ZIOApp.Proxy(
-          MetricsClientAppWithConfig <> BusinessLogicAppWithConfig
-        )
   }
 
 }
