@@ -8,6 +8,8 @@ package SchemaTheAnatomyOfDataTypes {
   package QueryDslExtendedOperators {
 
     import zio._
+    import zio.schema._
+    import zio.schema.DeriveSchema
     import zio.test._
 
     // ── Core data types ──────────────────────────────────────────────────────
@@ -65,6 +67,27 @@ package SchemaTheAnatomyOfDataTypes {
         get: S => A
       ): FieldAccessor[S, A] =
         new FieldAccessor(recordType, fieldName, get)
+
+      /**
+       * Derive a FieldAccessor from a ZIO Schema field.
+       * Uses the schema's TypeId name as the record type and the field's own
+       * name and getter — no manual wiring needed.
+       */
+      def fromSchemaRecord[S, A](
+        record: Schema.Record[S],
+        name: String
+      ): FieldAccessor[S, A] = {
+        val field = record.fields
+          .find(_.name == name)
+          .getOrElse(throw new NoSuchElementException(
+            s"Field '$name' not found in schema '${record.id.name}'"
+          ))
+        new FieldAccessor[S, A](
+          record.id.name,
+          field.name,
+          s => field.get(s).asInstanceOf[A]
+        )
+      }
 
       implicit class StringOps[S](val self: FieldAccessor[S, String])
           extends AnyVal {
@@ -132,11 +155,15 @@ package SchemaTheAnatomyOfDataTypes {
     case class Person(name: String, age: Int)
 
     object Person {
+      implicit val schema: Schema[Person] = DeriveSchema.gen[Person]
+      private val record: Schema.Record[Person] =
+        schema.asInstanceOf[Schema.Record[Person]]
+
       val name: FieldAccessor[Person, String] =
-        FieldAccessor[Person, String]("Person", "name", _.name)
+        FieldAccessor.fromSchemaRecord(record, "name")
 
       val age: FieldAccessor[Person, Int] =
-        FieldAccessor[Person, Int]("Person", "age", _.age)
+        FieldAccessor.fromSchemaRecord(record, "age")
     }
 
     // ── Query interpreter ────────────────────────────────────────────────────
@@ -378,12 +405,11 @@ package SchemaTheAnatomyOfDataTypes {
   /**
    *   2. Implement nested query support in the Query DSL.
    */
-  /**
-   *   2. Implement nested query support in the Query DSL.
-   */
   package NestedQuerySupport {
 
     import zio._
+    import zio.schema._
+    import zio.schema.DeriveSchema
     import zio.test._
 
     // ── Core data types (reused from exercise 1 with / operator added) ────────
@@ -438,6 +464,22 @@ package SchemaTheAnatomyOfDataTypes {
       ): FieldAccessor[S, A] =
         new FieldAccessor(recordType, fieldName, get)
 
+      def fromSchemaRecord[S, A](
+        record: Schema.Record[S],
+        name: String
+      ): FieldAccessor[S, A] = {
+        val field = record.fields
+          .find(_.name == name)
+          .getOrElse(throw new NoSuchElementException(
+            s"Field '$name' not found in schema '${record.id.name}'"
+          ))
+        new FieldAccessor[S, A](
+          record.id.name,
+          field.name,
+          s => field.get(s).asInstanceOf[A]
+        )
+      }
+
       implicit class StringOps[S](val self: FieldAccessor[S, String])
           extends AnyVal {
 
@@ -485,23 +527,25 @@ package SchemaTheAnatomyOfDataTypes {
     case class Address(country: String, city: String, street: String)
 
     object Address {
-      val country: FieldAccessor[Address, String] =
-        FieldAccessor("Address", "country", _.country)
-      val city: FieldAccessor[Address, String] =
-        FieldAccessor("Address", "city", _.city)
-      val street: FieldAccessor[Address, String] =
-        FieldAccessor("Address", "street", _.street)
+      implicit val schema: Schema[Address] = DeriveSchema.gen[Address]
+      private val record: Schema.Record[Address] =
+        schema.asInstanceOf[Schema.Record[Address]]
+
+      val country: FieldAccessor[Address, String] = FieldAccessor.fromSchemaRecord(record, "country")
+      val city: FieldAccessor[Address, String]    = FieldAccessor.fromSchemaRecord(record, "city")
+      val street: FieldAccessor[Address, String]  = FieldAccessor.fromSchemaRecord(record, "street")
     }
 
     case class Person(name: String, age: Int, address: Address)
 
     object Person {
-      val name: FieldAccessor[Person, String] =
-        FieldAccessor("Person", "name", _.name)
-      val age: FieldAccessor[Person, Int] =
-        FieldAccessor("Person", "age", _.age)
-      val address: FieldAccessor[Person, Address] =
-        FieldAccessor("Person", "address", _.address)
+      implicit val schema: Schema[Person] = DeriveSchema.gen[Person]
+      private val record: Schema.Record[Person] =
+        schema.asInstanceOf[Schema.Record[Person]]
+
+      val name: FieldAccessor[Person, String]      = FieldAccessor.fromSchemaRecord(record, "name")
+      val age: FieldAccessor[Person, Int]          = FieldAccessor.fromSchemaRecord(record, "age")
+      val address: FieldAccessor[Person, Address]  = FieldAccessor.fromSchemaRecord(record, "address")
     }
 
     // ── Spec ──────────────────────────────────────────────────────────────────
@@ -635,141 +679,12 @@ package SchemaTheAnatomyOfDataTypes {
   package CsvCodec {
 
     import zio._
+    import zio.schema._
+    import zio.schema.DeriveSchema
     import zio.test._
+    import scala.collection.immutable.ListMap
 
-    // ── DynamicValue ──────────────────────────────────────────────────────────
-    //
-    // A structural representation of a value, independent of its static type.
-    // Mirrors ZIO Schema's DynamicValue design:
-    //  - Record  : an ordered list of named fields (preserves field order for CSV)
-    //  - Primitive: a serialised string (sufficient for CSV round-trips)
-
-    sealed trait DynamicValue
-
-    object DynamicValue {
-      final case class Record(fields: List[(String, DynamicValue)]) extends DynamicValue
-      final case class Primitive(value: String)                     extends DynamicValue
-    }
-
-    // ── Schema[A] ─────────────────────────────────────────────────────────────
-    //
-    // A Schema[A] is a reified description of type A that can:
-    //  - convert a live A into its DynamicValue (toDynamic)
-    //  - reconstruct an A from a DynamicValue (fromDynamic)
-    //  - enumerate field names (fieldNames — empty for primitives)
-    //
-    // Follows the same pattern as ZIO Schema without the library dependency.
-
-    sealed trait Schema[A] {
-      def toDynamic(value: A): DynamicValue
-      def fromDynamic(dv: DynamicValue): Either[String, A]
-      def fieldNames: List[String]
-    }
-
-    object Schema {
-
-      // ── Primitive schemas ──────────────────────────────────────────────────
-
-      private def mkPrimitive[A](
-        serialize: A => String,
-        deserialize: String => Either[String, A]
-      ): Schema[A] = new Schema[A] {
-        def toDynamic(value: A): DynamicValue = DynamicValue.Primitive(serialize(value))
-        def fromDynamic(dv: DynamicValue): Either[String, A] = dv match {
-          case DynamicValue.Primitive(s) => deserialize(s)
-          case _                          => Left("Expected Primitive, got Record")
-        }
-        def fieldNames: List[String] = Nil
-      }
-
-      implicit val string: Schema[String] =
-        mkPrimitive(identity, Right(_))
-
-      implicit val int: Schema[Int] =
-        mkPrimitive(_.toString, s => s.toIntOption.toRight(s"Not an Int: '$s'"))
-
-      implicit val double: Schema[Double] =
-        mkPrimitive(_.toString, s => s.toDoubleOption.toRight(s"Not a Double: '$s'"))
-
-      implicit val boolean: Schema[Boolean] =
-        mkPrimitive(
-          _.toString,
-          {
-            case "true"  => Right(true)
-            case "false" => Right(false)
-            case s       => Left(s"Not a Boolean: '$s'")
-          }
-        )
-
-      // ── Schema fields ──────────────────────────────────────────────────────
-      //
-      // SchemaField is an existential: it hides the concrete FieldType while
-      // still giving the record schema everything it needs (name, dynamic
-      // encode/decode). This is the same trick used inside ZIO Schema itself.
-
-      sealed abstract class SchemaField[S] {
-        type FieldType
-        def name: String
-        def fieldSchema: Schema[FieldType]
-        def get: S => FieldType
-
-        final def toDynamic(s: S): (String, DynamicValue) =
-          name -> fieldSchema.toDynamic(get(s))
-
-        // Returns Either[String, Any] so the record schema can collect all
-        // field values in a List[Any] and pass them to construct().
-        final def fromDynamic(dv: DynamicValue): Either[String, Any] =
-          fieldSchema.fromDynamic(dv)
-      }
-
-      object SchemaField {
-        def apply[S, A](
-          fieldName: String,
-          getter: S => A
-        )(implicit s: Schema[A]): SchemaField[S] =
-          new SchemaField[S] {
-            type FieldType = A
-            val name        = fieldName
-            val fieldSchema = s
-            val get         = getter
-          }
-      }
-
-      // ── Record schema ──────────────────────────────────────────────────────
-      //
-      // Encodes A as a Record by applying each field's schema.
-      // Decodes by looking up each field by name in the DynamicValue.Record,
-      // collecting the results with foldRight (preserves field order without
-      // a reverse), then delegating reconstruction to the caller-supplied
-      // construct function.
-
-      def record[A](
-        schemaFields: List[SchemaField[A]]
-      )(construct: List[Any] => Either[String, A]): Schema[A] =
-        new Schema[A] {
-          val fieldNames: List[String] = schemaFields.map(_.name)
-
-          def toDynamic(value: A): DynamicValue =
-            DynamicValue.Record(schemaFields.map(_.toDynamic(value)))
-
-          def fromDynamic(dv: DynamicValue): Either[String, A] = dv match {
-            case DynamicValue.Record(fieldValues) =>
-              val byName = fieldValues.toMap
-              schemaFields
-                .foldRight[Either[String, List[Any]]](Right(Nil)) { (field, acc) =>
-                  for {
-                    rest <- acc
-                    fv   <- byName.get(field.name).toRight(s"Missing field: '${field.name}'")
-                    v    <- field.fromDynamic(fv)
-                  } yield v :: rest
-                }
-                .flatMap(construct)
-            case _ => Left("Expected Record, got Primitive")
-          }
-        }
-    }
-
-    // ── CsvEncoder[A] ─────────────────────────────────────────────────────────
+    // ── CsvEncoder[A] ────────────────────────────────────────────────────────
 
     trait CsvEncoder[A] {
       def headers: List[String]
@@ -779,7 +694,7 @@ package SchemaTheAnatomyOfDataTypes {
         (headers.mkString(",") :: values.map(v => encodeRow(v).mkString(","))).mkString("\n")
     }
 
-    // ── CsvDecoder[A] ─────────────────────────────────────────────────────────
+    // ── CsvDecoder[A] ────────────────────────────────────────────────────────
 
     trait CsvDecoder[A] {
       def decode(csv: String): Either[String, List[A]]
@@ -787,12 +702,13 @@ package SchemaTheAnatomyOfDataTypes {
 
     // ── CsvCodec factory ──────────────────────────────────────────────────────
     //
-    // Derives encoder and decoder from Schema[A].
+    // Derives encoder and decoder from Schema[A] using ZIO Schema primitives.
     //
     // Encoding path: A  →  schema.toDynamic  →  DynamicValue.Record
-    //                →  extract Primitive strings in field order  →  CSV row
+    //                →  extract Primitive.value.toString per field  →  CSV row
     //
-    // Decoding path: CSV row  →  split by comma  →  DynamicValue.Record
+    // Decoding path: CSV row  →  split by comma  →  build DynamicValue.Record
+    //                (parsing each string via the field's Schema[_])
     //                →  schema.fromDynamic  →  A
 
     object CsvCodec {
@@ -804,33 +720,77 @@ package SchemaTheAnatomyOfDataTypes {
           for { rest <- acc; b <- f(a) } yield b :: rest
         }
 
-      def encoder[A](schema: Schema[A]): Either[String, CsvEncoder[A]] =
-        schema.fieldNames match {
-          case Nil =>
-            Left("CsvEncoder requires a record schema with at least one field")
-          case hdrs =>
+      /** Render a DynamicValue.Primitive as its CSV string. */
+      private def primitiveToString(dv: DynamicValue): Either[String, String] = dv match {
+        case DynamicValue.Primitive(value, _) => Right(value.toString)
+        case _ => Left("CSV only supports flat records; nested values are not supported")
+      }
+
+      /**
+       * ZIO Schema wraps field schemas in Schema.Lazy when deriving case class
+       * schemas (to support recursive types).  Forcing the lazy here ensures
+       * the inner Schema.Primitive is visible to the pattern match below.
+       */
+      private def forceSchema(s: Schema[_]): Schema[_] = s match {
+        case l: Schema.Lazy[_] => l.schema
+        case other             => other
+      }
+
+      /**
+       * Parse a raw CSV string into a DynamicValue.Primitive using the field's
+       * Schema to determine the expected type.  Calls schema.fromDynamic later
+       * so the type tag must match what ZIO Schema produced during toDynamic.
+       */
+      private def stringToPrimitive(
+        s: String,
+        fieldSchema: Schema[_]
+      ): Either[String, DynamicValue] =
+        forceSchema(fieldSchema) match {
+          case Schema.Primitive(st, _) =>
+            st match {
+              case StandardType.StringType =>
+                Right(DynamicValue.Primitive(s, StandardType.StringType))
+              case StandardType.IntType =>
+                s.toIntOption.toRight(s"Not an Int: '$s'")
+                  .map(DynamicValue.Primitive(_, StandardType.IntType))
+              case StandardType.DoubleType =>
+                s.toDoubleOption.toRight(s"Not a Double: '$s'")
+                  .map(DynamicValue.Primitive(_, StandardType.DoubleType))
+              case StandardType.BoolType =>
+                s match {
+                  case "true"  => Right(DynamicValue.Primitive(true, StandardType.BoolType))
+                  case "false" => Right(DynamicValue.Primitive(false, StandardType.BoolType))
+                  case _       => Left(s"Not a Boolean: '$s'")
+                }
+              case _ => Left(s"Unsupported CSV primitive type: $st")
+            }
+          case _ => Left("CSV only supports primitive field types")
+        }
+
+      def encoder[A](implicit schema: Schema[A]): Either[String, CsvEncoder[A]] =
+        schema match {
+          case record: Schema.Record[A] =>
             Right(new CsvEncoder[A] {
-              def headers: List[String] = hdrs
+              val headers: List[String] = record.fields.map(_.name).toList
 
               def encodeRow(value: A): List[String] =
                 schema.toDynamic(value) match {
-                  case DynamicValue.Record(fields) =>
-                    fields.map {
-                      case (_, DynamicValue.Primitive(v)) => v
-                      case (name, _) =>
-                        sys.error(s"Nested records not supported in CSV: field '$name'")
-                    }
+                  case DynamicValue.Record(_, fieldValues) =>
+                    headers.map(h =>
+                      fieldValues.get(h).flatMap(primitiveToString(_).toOption).getOrElse("")
+                    )
                   case _ =>
-                    sys.error("Schema.toDynamic returned Primitive for a record schema")
+                    sys.error("toDynamic returned non-Record for a record schema")
                 }
             })
+          case _ => Left("CsvEncoder requires a record schema")
         }
 
-      def decoder[A](schema: Schema[A]): Either[String, CsvDecoder[A]] =
-        schema.fieldNames match {
-          case Nil =>
-            Left("CsvDecoder requires a record schema with at least one field")
-          case _ =>
+      def decoder[A](implicit schema: Schema[A]): Either[String, CsvDecoder[A]] =
+        schema match {
+          case record: Schema.Record[A] =>
+            val fieldSchemaByName: Map[String, Schema[_]] =
+              record.fields.map(f => f.name -> (f.schema: Schema[_])).toList.toMap
             Right(new CsvDecoder[A] {
               def decode(csv: String): Either[String, List[A]] = {
                 val lines = csv.split("\n", -1).toList
@@ -841,55 +801,43 @@ package SchemaTheAnatomyOfDataTypes {
                     traverseEither(dataLines.filter(_.nonEmpty)) { line =>
                       val values = line.split(",", -1).toList
                       if (values.length != parsedHeaders.length)
-                        Left(
-                          s"Expected ${parsedHeaders.length} columns, got ${values.length}"
-                        )
-                      else {
-                        val record = DynamicValue.Record(
-                          parsedHeaders.zip(values).map { case (n, v) =>
-                            n -> DynamicValue.Primitive(v)
+                        Left(s"Expected ${parsedHeaders.length} columns, got ${values.length}")
+                      else
+                        for {
+                          dvFields <- traverseEither(parsedHeaders.zip(values)) {
+                            case (name, s) =>
+                              fieldSchemaByName
+                                .get(name)
+                                .toRight(s"Unknown field: '$name'")
+                                .flatMap(stringToPrimitive(s, _))
+                                .map(dv => name -> dv)
                           }
-                        )
-                        schema.fromDynamic(record)
-                      }
+                          decoded  <- schema.fromDynamic(
+                            DynamicValue.Record(record.id, ListMap(dvFields: _*))
+                          )
+                        } yield decoded
                     }
                 }
               }
             })
+          case _ => Left("CsvDecoder requires a record schema")
         }
 
-      def make[A](schema: Schema[A]): Either[String, (CsvEncoder[A], CsvDecoder[A])] =
+      def make[A](implicit
+        schema: Schema[A]
+      ): Either[String, (CsvEncoder[A], CsvDecoder[A])] =
         for {
-          enc <- encoder(schema)
-          dec <- decoder(schema)
+          enc <- encoder[A]
+          dec <- decoder[A]
         } yield (enc, dec)
     }
 
-    // ── Domain model & schema for tests ──────────────────────────────────────
+    // ── Domain model & schema ─────────────────────────────────────────────────
 
     case class Employee(name: String, age: Int, active: Boolean, salary: Double)
 
     object Employee {
-      implicit val schema: Schema[Employee] =
-        Schema.record[Employee](
-          List(
-            Schema.SchemaField("name",   _.name),
-            Schema.SchemaField("age",    _.age),
-            Schema.SchemaField("active", _.active),
-            Schema.SchemaField("salary", _.salary)
-          )
-        ) {
-          case List(name, age, active, salary) =>
-            Right(
-              Employee(
-                name.asInstanceOf[String],
-                age.asInstanceOf[Int],
-                active.asInstanceOf[Boolean],
-                salary.asInstanceOf[Double]
-              )
-            )
-          case other => Left(s"Employee: expected 4 fields, got ${other.length}")
-        }
+      implicit val schema: Schema[Employee] = DeriveSchema.gen[Employee]
     }
 
     // ── Spec ──────────────────────────────────────────────────────────────────
@@ -900,8 +848,11 @@ package SchemaTheAnatomyOfDataTypes {
       val bob: Employee     = Employee("Bob",     25, active = false, salary = 55000.0)
       val charlie: Employee = Employee("Charlie", 45, active = true,  salary = 120000.0)
 
-      val enc: CsvEncoder[Employee] = CsvCodec.encoder(Employee.schema).toOption.get
-      val dec: CsvDecoder[Employee] = CsvCodec.decoder(Employee.schema).toOption.get
+      val enc: CsvEncoder[Employee] = CsvCodec.encoder[Employee].toOption.get
+      val dec: CsvDecoder[Employee] = CsvCodec.decoder[Employee].toOption.get
+
+      private val employeeRecord: Schema.Record[Employee] =
+        Employee.schema.asInstanceOf[Schema.Record[Employee]]
 
       override def spec: Spec[TestEnvironment with Scope, Any] =
         suite("CSV Codec")(
@@ -964,52 +915,55 @@ package SchemaTheAnatomyOfDataTypes {
               assertTrue(dec.decode(enc.encode(List(original))) == Right(List(original)))
             }
           ),
-          suite("Schema internals")(
-            test("toDynamic produces Record with ordered named fields") {
+          suite("ZIO Schema integration")(
+            test("toDynamic produces Record with typed primitive values") {
               val dv = Employee.schema.toDynamic(alice)
               assertTrue(
                 dv == DynamicValue.Record(
-                  List(
-                    "name"   -> DynamicValue.Primitive("Alice"),
-                    "age"    -> DynamicValue.Primitive("30"),
-                    "active" -> DynamicValue.Primitive("true"),
-                    "salary" -> DynamicValue.Primitive("75000.0")
+                  employeeRecord.id,
+                  ListMap(
+                    "name"   -> DynamicValue.Primitive("Alice",   StandardType.StringType),
+                    "age"    -> DynamicValue.Primitive(30,        StandardType.IntType),
+                    "active" -> DynamicValue.Primitive(true,      StandardType.BoolType),
+                    "salary" -> DynamicValue.Primitive(75000.0,   StandardType.DoubleType)
                   )
                 )
               )
             },
             test("fromDynamic reconstructs Employee from Record") {
               val dv = DynamicValue.Record(
-                List(
-                  "name"   -> DynamicValue.Primitive("Alice"),
-                  "age"    -> DynamicValue.Primitive("30"),
-                  "active" -> DynamicValue.Primitive("true"),
-                  "salary" -> DynamicValue.Primitive("75000.0")
+                employeeRecord.id,
+                ListMap(
+                  "name"   -> DynamicValue.Primitive("Alice",   StandardType.StringType),
+                  "age"    -> DynamicValue.Primitive(30,        StandardType.IntType),
+                  "active" -> DynamicValue.Primitive(true,      StandardType.BoolType),
+                  "salary" -> DynamicValue.Primitive(75000.0,   StandardType.DoubleType)
                 )
               )
               assertTrue(Employee.schema.fromDynamic(dv) == Right(alice))
             },
             test("fromDynamic returns Left for missing field") {
               val dv = DynamicValue.Record(
-                List(
-                  "name" -> DynamicValue.Primitive("Alice"),
-                  "age"  -> DynamicValue.Primitive("30")
+                employeeRecord.id,
+                ListMap(
+                  "name" -> DynamicValue.Primitive("Alice", StandardType.StringType),
+                  "age"  -> DynamicValue.Primitive(30,      StandardType.IntType)
                 )
               )
               assertTrue(Employee.schema.fromDynamic(dv).isLeft)
             },
-            test("primitive int schema round-trips") {
-              val s  = Schema.int
+            test("Schema[Int] round-trips via toDynamic / fromDynamic") {
+              val s  = Schema[Int]
               val dv = s.toDynamic(42)
               assertTrue(s.fromDynamic(dv) == Right(42))
             },
-            test("primitive double schema round-trips") {
-              val s  = Schema.double
+            test("Schema[Double] round-trips via toDynamic / fromDynamic") {
+              val s  = Schema[Double]
               val dv = s.toDynamic(3.14)
               assertTrue(s.fromDynamic(dv) == Right(3.14))
             },
-            test("primitive boolean schema round-trips") {
-              val s  = Schema.boolean
+            test("Schema[Boolean] round-trips via toDynamic / fromDynamic") {
+              val s = Schema[Boolean]
               assertTrue(
                 s.fromDynamic(s.toDynamic(true))  == Right(true),
                 s.fromDynamic(s.toDynamic(false)) == Right(false)
@@ -1018,13 +972,13 @@ package SchemaTheAnatomyOfDataTypes {
           ),
           suite("CsvCodec factory")(
             test("make returns Right for a record schema") {
-              assertTrue(CsvCodec.make(Employee.schema).isRight)
+              assertTrue(CsvCodec.make[Employee].isRight)
             },
             test("encoder returns Left for a primitive schema") {
-              assertTrue(CsvCodec.encoder(Schema.string).isLeft)
+              assertTrue(CsvCodec.encoder(Schema[String]).isLeft)
             },
             test("decoder returns Left for a primitive schema") {
-              assertTrue(CsvCodec.decoder(Schema.int).isLeft)
+              assertTrue(CsvCodec.decoder(Schema[Int]).isLeft)
             }
           )
         )
@@ -1042,8 +996,8 @@ package SchemaTheAnatomyOfDataTypes {
 
       def run: ZIO[Any, Throwable, Unit] =
         for {
-          enc     <- ZIO.fromEither(CsvCodec.encoder(Employee.schema)).mapError(new RuntimeException(_))
-          dec     <- ZIO.fromEither(CsvCodec.decoder(Employee.schema)).mapError(new RuntimeException(_))
+          enc     <- ZIO.fromEither(CsvCodec.encoder[Employee]).mapError(new RuntimeException(_))
+          dec     <- ZIO.fromEither(CsvCodec.decoder[Employee]).mapError(new RuntimeException(_))
 
           _       <- Console.printLine("=== CSV Codec Example ===\n")
 
