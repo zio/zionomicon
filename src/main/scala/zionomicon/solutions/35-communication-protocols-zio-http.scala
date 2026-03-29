@@ -285,64 +285,67 @@ package CommunicationProtocolsZIOHTTP {
         object impl {
 
           /**
-           * Creates a request logging middleware that logs when each request
-           * completes.
+           * Creates a HandlerAspect middleware that logs the processing time
+           * for each request in milliseconds.
            *
-           * This middleware demonstrates the Middleware pattern in ZIO HTTP,
-           * which allows intercepting and transforming request handlers at the
-           * routes level. It uses `handler.tapZIO` to log response status after
-           * the handler completes.
+           * DESIGN EXPLANATION:
            *
-           * IMPLEMENTATION NOTE - Duration Measurement Challenges:
+           * This implementation uses `HandlerAspect.interceptHandlerStateful`,
+           * which is the correct API for stateful middleware in ZIO HTTP. It
+           * works by splitting middleware execution into two phases:
            *
-           * The exercise requirement is to log "processing time for each
-           * request in milliseconds". However, measuring precise request
-           * duration in ZIO HTTP 3.7.1 is constrained by the type system:
+           *   1. INCOMING PHASE: Called before the route handler runs. We
+           *      capture the start time and pass it through as state.
+           *   2. OUTGOING PHASE: Called after the route handler completes. We
+           *      receive the saved start time and the response, compute the
+           *      duration, and log it.
            *
-           *   - When wrapping handler invocation to measure time, calling
-           *     `handler(req)` introduces a Scope requirement into the ZIO
-           *     effect
-           *   - This Scope environment doesn't match the Handler return type
-           *     expected by routes.transform
-           *   - Attempts to eliminate Scope (via ZIO.scoped or other means)
-           *     lose the original Env1 environment
+           * State Threading:
+           *   - State0 = (java.time.Instant, Request) — stores both start time
+           *     and original request for the log message
+           *   - CtxOut = Unit — no additional context passed to route handlers
            *
-           * To properly measure duration would require either: a) Using
-           * HandlerAspect with state sharing across boundaries b) Working at a
-           * lower HTTP layer where request context is available c) Using unsafe
-           * type coercions to bypass the constraints
+           * This pattern ensures we capture the exact time the request enters
+           * the middleware and when the response exits, giving us accurate
+           * per-request duration measurements.
            *
-           * This implementation demonstrates the Middleware pattern and logging
-           * capability, with the duration measurement aspect left for more
-           * advanced solutions.
+           * The API is used in ZIO HTTP's own built-in middlewares:
+           * HandlerAspect.debug and HandlerAspect.requestLogging implement the
+           * same pattern.
            *
            * Key learnings:
-           *   1. How to use routes.transform to intercept all handlers
-           *   2. How to use handler.tapZIO for side effects (logging)
-           *   3. How to compose middleware with routes using @@ operator
-           *   4. Type system constraints in ZIO HTTP middleware design
+           *   1. HandlerAspect.interceptHandlerStateful splits middleware into
+           *      incoming/outgoing phases
+           *   2. State is threaded from incoming to outgoing handlers
+           *   3. Clock.instant provides ZIO[Any, Nothing, Instant] — no extra
+           *      environment or Scope requirements
+           *   4. Middleware composition with @@ operator works with
+           *      HandlerAspect as it extends Middleware[Env]
            */
-          def requestDurationLogging: Middleware[Any] =
-            new Middleware[Any] {
-              override def apply[Env1 <: Any, Err](
-                routes: Routes[Env1, Err]
-              ): Routes[Env1, Err] =
-                routes.transform { handler =>
-                  // Measurement strategy: Capture start time as pure value before handler,
-                  // then use it in tapZIO to calculate elapsed time.
-                  // The start time is captured once per handler transformation,
-                  // giving us rough request timing.
-                  val handlerStartTime = java.lang.System.nanoTime()
-                  handler.tapZIO { response =>
-                    val endTime = java.lang.System.nanoTime()
-                    val durationMs =
-                      (endTime - handlerStartTime) / 1_000_000.0
-                    ZIO.debug(
-                      f"${response.status.code} - Processed in ${durationMs}%.2f ms"
-                    )
-                  }
+          def requestDurationLogging: HandlerAspect[Any, Unit] =
+            HandlerAspect.interceptHandlerStateful(
+              // Incoming handler: capture start time and request, pass through unchanged
+              Handler.fromFunctionZIO[Request] { request =>
+                Clock.instant.map { startTime =>
+                  ((startTime, request), (request, ()))
                 }
-            }
+              }
+            )(
+              // Outgoing handler: compute duration and log it
+              Handler
+                .fromFunctionZIO[((java.time.Instant, Request), Response)] {
+                  case ((startTime, request), response) =>
+                    Clock.instant.flatMap { endTime =>
+                      val durationMs =
+                        java.time.Duration.between(startTime, endTime).toMillis
+                      ZIO
+                        .debug(
+                          s"${request.method} ${request.url.encode} ${response.status.code} ${durationMs}ms"
+                        )
+                        .as(response)
+                    }
+                }
+            )
         }
       }
 
