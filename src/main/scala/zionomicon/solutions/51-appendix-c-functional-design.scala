@@ -126,61 +126,59 @@ package zionomicon.solutions.AppendixCFunctionalDesign {
       }
     }
 
-    object MemoizationDemo extends zio.ZIOAppDefault {
-
-      val run = for {
-        // Create an expensive function that computes factorial and prints when called
-        _ <- zio.ZIO.attempt(println("=== Memoization Demo ===\n"))
+    object MemoizationDemo {
+      def main(args: Array[String]): Unit = {
+        println("=== Memoization Demo ===\n")
 
         // Non-memoized version
-        _ <- zio.ZIO.attempt(println("1. Non-memoized factorial calls:"))
-        factorial = (n: Int) => {
+        println("1. Non-memoized factorial calls:")
+        val factorial = (n: Int) => {
           println(s"   Computing factorial($n)...")
           (1 to n).foldLeft(1L)(_ * _)
         }
 
-        result1 <- zio.ZIO.attempt(factorial(5))
-        _ <- zio.ZIO.attempt(println(s"   Result: $result1"))
-        result2 <- zio.ZIO.attempt(factorial(5))
-        _ <- zio.ZIO.attempt(println(s"   Result: $result2"))
-        _ <- zio.ZIO.attempt(println("   Notice: Function was called twice and recomputed\n"))
+        val result1 = factorial(5)
+        println(s"   Result: $result1")
+        val result2 = factorial(5)
+        println(s"   Result: $result2")
+        println("   Notice: Function was called twice and recomputed\n")
 
         // Memoized version
-        _ <- zio.ZIO.attempt(println("2. Memoized factorial calls:"))
-        memoizedFactorial = defs.memoize((n: Int) => {
+        println("2. Memoized factorial calls:")
+        val memoizedFactorial = defs.memoize((n: Int) => {
           println(s"   Computing factorial($n)...")
           (1 to n).foldLeft(1L)(_ * _)
         })
 
-        result3 <- zio.ZIO.attempt(memoizedFactorial(5))
-        _ <- zio.ZIO.attempt(println(s"   Result: $result3"))
-        result4 <- zio.ZIO.attempt(memoizedFactorial(5))
-        _ <- zio.ZIO.attempt(println(s"   Result: $result4"))
-        _ <- zio.ZIO.attempt(println("   Notice: Function computation only happened once!\n"))
+        val result3 = memoizedFactorial(5)
+        println(s"   Result: $result3")
+        val result4 = memoizedFactorial(5)
+        println(s"   Result: $result4")
+        println("   Notice: Function computation only happened once!\n")
 
         // Multiple different arguments
-        _ <- zio.ZIO.attempt(println("3. Memoized with different arguments:"))
-        result5 <- zio.ZIO.attempt(memoizedFactorial(6))
-        _ <- zio.ZIO.attempt(println(s"   Result for 6: $result5"))
-        result6 <- zio.ZIO.attempt(memoizedFactorial(5))
-        _ <- zio.ZIO.attempt(println(s"   Result for 5: $result6 (cached)"))
-        result7 <- zio.ZIO.attempt(memoizedFactorial(6))
-        _ <- zio.ZIO.attempt(println(s"   Result for 6: $result7 (cached)"))
+        println("3. Memoized with different arguments:")
+        val result5 = memoizedFactorial(6)
+        println(s"   Result for 6: $result5")
+        val result6 = memoizedFactorial(5)
+        println(s"   Result for 5: $result6 (cached)")
+        val result7 = memoizedFactorial(6)
+        println(s"   Result for 6: $result7 (cached)")
 
         // Thread-safe memoization alternative
-        _ <- zio.ZIO.attempt(println("\n4. Thread-safe memoization:"))
-        threadSafeFactorial = defs.memoizeThreadSafe((n: Int) => {
+        println("\n4. Thread-safe memoization:")
+        val threadSafeFactorial = defs.memoizeThreadSafe((n: Int) => {
           println(s"   Computing factorial($n) [thread-safe]...")
           (1 to n).foldLeft(1L)(_ * _)
         })
 
-        result8 <- zio.ZIO.attempt(threadSafeFactorial(5))
-        _ <- zio.ZIO.attempt(println(s"   Result: $result8"))
-        result9 <- zio.ZIO.attempt(threadSafeFactorial(5))
-        _ <- zio.ZIO.attempt(println(s"   Result: $result9 (cached, using ConcurrentHashMap)"))
+        val result8 = threadSafeFactorial(5)
+        println(s"   Result: $result8")
+        val result9 = threadSafeFactorial(5)
+        println(s"   Result: $result9 (cached, using ConcurrentHashMap)")
 
-        _ <- zio.ZIO.attempt(println("\n=== Demo Complete ==="))
-      } yield ()
+        println("\n=== Demo Complete ===")
+      }
     }
   }
 
