@@ -284,68 +284,96 @@ package CommunicationProtocolsZIOHTTP {
 
         object impl {
 
+          // Internal header used to pass computed duration from
+          // computeRequestDuration to logRequestDuration. Always removed before
+          // the response reaches the HTTP client.
+          private val DurationHeaderName = "x-internal-duration-ms"
+
           /**
-           * Creates a HandlerAspect middleware that logs the processing time
-           * for each request in milliseconds.
+           * First middleware layer: captures the start time on incoming and
+           * computes the request duration on outgoing, storing it as an
+           * internal response header for logRequestDuration to consume.
            *
-           * DESIGN EXPLANATION:
+           * State0 = java.time.Instant (start time) CtxOut = Unit
            *
-           * This implementation uses `HandlerAspect.interceptHandlerStateful`,
-           * which is the correct API for stateful middleware in ZIO HTTP. It
-           * works by splitting middleware execution into two phases:
-           *
-           *   1. INCOMING PHASE: Called before the route handler runs. We
-           *      capture the start time and pass it through as state.
-           *   2. OUTGOING PHASE: Called after the route handler completes. We
-           *      receive the saved start time and the response, compute the
-           *      duration, and log it.
-           *
-           * State Threading:
-           *   - State0 = (java.time.Instant, Request) — stores both start time
-           *     and original request for the log message
-           *   - CtxOut = Unit — no additional context passed to route handlers
-           *
-           * This pattern ensures we capture the exact time the request enters
-           * the middleware and when the response exits, giving us accurate
-           * per-request duration measurements.
-           *
-           * The API is used in ZIO HTTP's own built-in middlewares:
-           * HandlerAspect.debug and HandlerAspect.requestLogging implement the
-           * same pattern.
-           *
-           * Key learnings:
-           *   1. HandlerAspect.interceptHandlerStateful splits middleware into
-           *      incoming/outgoing phases
-           *   2. State is threaded from incoming to outgoing handlers
-           *   3. Clock.instant provides ZIO[Any, Nothing, Instant] — no extra
-           *      environment or Scope requirements
-           *   4. Middleware composition with @@ operator works with
-           *      HandlerAspect as it extends Middleware[Env]
+           * DESIGN: This middleware is responsible for measurement. It captures
+           * the exact instant the request enters and records elapsed time as a
+           * response header. A downstream middleware (logRequestDuration) will
+           * read this header to log the summary.
            */
-          def requestDurationLogging: HandlerAspect[Any, Unit] =
+          def computeRequestDuration: HandlerAspect[Any, Unit] =
             HandlerAspect.interceptHandlerStateful(
-              // Incoming handler: capture start time and request, pass through unchanged
               Handler.fromFunctionZIO[Request] { request =>
-                Clock.instant.map { startTime =>
-                  ((startTime, request), (request, ()))
-                }
+                Clock.instant.map(startTime => (startTime, (request, ())))
               }
             )(
-              // Outgoing handler: compute duration and log it
-              Handler
-                .fromFunctionZIO[((java.time.Instant, Request), Response)] {
-                  case ((startTime, request), response) =>
-                    Clock.instant.flatMap { endTime =>
-                      val durationMs =
-                        java.time.Duration.between(startTime, endTime).toMillis
+              Handler.fromFunctionZIO[(java.time.Instant, Response)] {
+                case (startTime, response) =>
+                  Clock.instant.map { endTime =>
+                    val durationMs =
+                      java.time.Duration.between(startTime, endTime).toMillis
+                    response.addHeader(DurationHeaderName, durationMs.toString)
+                  }
+              }
+            )
+
+          /**
+           * Second middleware layer: captures the request on incoming, then on
+           * outgoing reads the duration header added by computeRequestDuration,
+           * logs the summary line, and removes the internal header from the
+           * response.
+           *
+           * Must be the outer layer (its outgoing runs after
+           * computeRequestDuration.outgoing): routes @@ computeRequestDuration @@
+           * logRequestDuration OR: logRequestDuration ++ computeRequestDuration
+           *
+           * State0 = Request (for method + URL in the log line) CtxOut = Unit
+           *
+           * DESIGN: This middleware is responsible for logging. It reads the
+           * duration from the header computed by the inner middleware and
+           * produces the structured log line. The internal header is removed so
+           * clients never see it.
+           */
+          def logRequestDuration: HandlerAspect[Any, Unit] =
+            HandlerAspect.interceptHandlerStateful(
+              Handler.fromFunctionZIO[Request] { request =>
+                ZIO.succeed((request, (request, ())))
+              }
+            )(
+              Handler.fromFunctionZIO[(Request, Response)] {
+                case (request, response) =>
+                  response.headers.get(DurationHeaderName) match {
+                    case Some(durationMs) =>
                       ZIO
                         .debug(
                           s"${request.method} ${request.url.encode} ${response.status.code} ${durationMs}ms"
                         )
+                        .as(response.removeHeader(DurationHeaderName))
+                    case None =>
+                      ZIO
+                        .debug(
+                          s"${request.method} ${request.url.encode} ${response.status.code} (duration unavailable)"
+                        )
                         .as(response)
-                    }
-                }
+                  }
+              }
             )
+
+          /**
+           * Combined middleware for convenience. Equivalent to: routes @@
+           * computeRequestDuration @@ logRequestDuration
+           *
+           * Uses ++ with reversed argument order (LIFO outgoing semantics):
+           * logRequestDuration ++ computeRequestDuration ensures:
+           * compute.outgoing (add header) runs before log.outgoing (read/remove
+           * header)
+           *
+           * COMPOSABILITY: Users can also use computeRequestDuration and
+           * logRequestDuration separately if they need to insert other
+           * middleware between timing and logging.
+           */
+          def requestDurationLogging: HandlerAspect[Any, Unit] =
+            logRequestDuration ++ computeRequestDuration
         }
       }
 
