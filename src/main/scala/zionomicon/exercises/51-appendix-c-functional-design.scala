@@ -1,108 +1,119 @@
-package zionomicon.exercises
+package zionomicon.exercises.AppendixCFunctionalDesign {
 
-import zio._
+  /**
+   * Implement function composition by creating a function that combines two
+   * functions into a single function.
+   */
+  package Exercise1 {
+    object defs {
+      def compose[A, B, C](f: B => C, g: A => B): A => C =
+        ???
+    }
+  }
 
-/**
- * Implement function composition by creating a function that combines two
- * functions into a single function.
- */
-package object Exercise1 {
+  /**
+   * Implement a higher-order function that applies a function multiple times
+   * to an initial value.
+   */
+  package Exercise2 {
+    object defs {
+      def repeat[A](f: A => A, n: Int)(initial: A): A =
+        ???
+    }
+  }
 
-  def compose[A, B, C](f: B => C, g: A => B): A => C =
-    ???
-}
+  /**
+   * Implement currying by converting a function that takes multiple arguments
+   * into a sequence of functions that each take a single argument.
+   */
+  package Exercise3 {
+    object defs {
+      def curry[A, B, C](f: (A, B) => C): A => B => C =
+        ???
+    }
+  }
 
-/**
- * Implement a higher-order function that applies a function multiple times
- * to an initial value.
- */
-package object Exercise2 {
+  /**
+   * Implement uncurrying by converting a curried function back into a function
+   * that takes multiple arguments.
+   */
+  package Exercise4 {
+    object defs {
+      def uncurry[A, B, C](f: A => B => C): (A, B) => C =
+        ???
+    }
+  }
 
-  def repeat[A](f: A => A, n: Int)(initial: A): A =
-    ???
-}
+  /**
+   * Implement partial application by creating a function that partially applies
+   * arguments to a function, returning a new function that takes the remaining
+   * arguments.
+   */
+  package Exercise5 {
+    object defs {
+      def partial[A, B, C](f: (A, B) => C, a: A): B => C =
+        ???
+    }
+  }
 
-/**
- * Implement currying by converting a function that takes multiple arguments
- * into a sequence of functions that each take a single argument.
- */
-package object Exercise3 {
+  /**
+   * Implement a function that applies a list of functions sequentially to an
+   * initial value, returning the final result.
+   */
+  package Exercise6 {
+    object defs {
+      def pipe[A](value: A, functions: List[A => A]): A =
+        ???
+    }
+  }
 
-  def curry[A, B, C](f: (A, B) => C): A => B => C =
-    ???
-}
+  /**
+   * Implement a function that creates a new function by combining two functions
+   * that return values of the same type (function coalgebra).
+   */
+  package Exercise7 {
+    object defs {
+      def fanout[A, B](f: A => B, g: A => B): A => (B, B) =
+        ???
+    }
+  }
 
-/**
- * Implement uncurrying by converting a curried function back into a function
- * that takes multiple arguments.
- */
-package object Exercise4 {
+  /**
+   * Implement a function that lifts a binary operation into a ZIO effect,
+   * allowing you to compose effectful computations using that operation.
+   */
+  package Exercise8 {
+    object defs {
+      import zio._
 
-  def uncurry[A, B, C](f: A => B => C): (A, B) => C =
-    ???
-}
+      def liftA2[R, E, A, B, C](
+        f: (A, B) => C,
+        effect1: ZIO[R, E, A],
+        effect2: ZIO[R, E, B]
+      ): ZIO[R, E, C] =
+        ???
+    }
+  }
 
-/**
- * Implement partial application by creating a function that partially applies
- * arguments to a function, returning a new function that takes the remaining
- * arguments.
- */
-package object Exercise5 {
+  /**
+   * Implement a memoization function that caches the result of a pure function,
+   * returning the cached result on subsequent calls with the same argument.
+   */
+  package Exercise9 {
+    object defs {
+      def memoize[A, B](f: A => B): A => B =
+        ???
+    }
+  }
 
-  def partial[A, B, C](f: (A, B) => C, a: A): B => C =
-    ???
-}
-
-/**
- * Implement a function that applies a list of functions sequentially to an
- * initial value, returning the final result.
- */
-package object Exercise6 {
-
-  def pipe[A](value: A, functions: List[A => A]): A =
-    ???
-}
-
-/**
- * Implement a function that creates a new function by combining two functions
- * that return values of the same type (function coalgebra).
- */
-package object Exercise7 {
-
-  def fanout[A, B](f: A => B, g: A => B): A => (B, B) =
-    ???
-}
-
-/**
- * Implement a function that lifts a binary operation into a ZIO effect,
- * allowing you to compose effectful computations using that operation.
- */
-package object Exercise8 {
-
-  def liftA2[R, E, A, B, C](
-    f: (A, B) => C,
-    effect1: ZIO[R, E, A],
-    effect2: ZIO[R, E, B]
-  ): ZIO[R, E, C] =
-    ???
-}
-
-/**
- * Implement a memoization function that caches the result of a pure function,
- * returning the cached result on subsequent calls with the same argument.
- */
-package object Exercise9 {
-
-  def memoize[A, B](f: A => B): A => B =
-    ???
-}
-
-/**
- * Implement a function that converts a function returning an Option into a
- * function that throws an exception if the option is None.
- */
-package object Exercise10 {
-
-  def optionToThrow[A, B](f: A => Option[B]): A => B =
-    ???
+  /**
+   * Implement a function that converts a function returning an Option into a
+   * function that throws an exception if the option is None.
+   */
+  package Exercise10 {
+    object defs {
+      def optionToThrow[A, B](f: A => Option[B]): A => B =
+        ???
+    }
+  }
 }
