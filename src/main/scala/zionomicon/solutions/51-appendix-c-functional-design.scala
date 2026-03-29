@@ -124,32 +124,6 @@ package zionomicon.solutions.AppendixCFunctionalDesign {
         val cache = new java.util.concurrent.ConcurrentHashMap[A, B]()
         a => cache.computeIfAbsent(a, _ => f(a))
       }
-
-      /**
-       * Alternative memoization using a wrapper that tracks number of calls.
-       * Useful for understanding cache effectiveness.
-       */
-      def memoizeWithStats[A, B](f: A => B): (A => B, () => (Int, Int)) = {
-        val cache = scala.collection.mutable.Map[A, B]()
-        var hits = 0
-        var misses = 0
-
-        val memoized = (a: A) => {
-          cache.get(a) match {
-            case Some(b) =>
-              hits += 1
-              b
-            case None =>
-              misses += 1
-              val b = f(a)
-              cache(a) = b
-              b
-          }
-        }
-
-        val stats = () => (hits, misses)
-        (memoized, stats)
-      }
     }
 
     object MemoizationDemo extends zio.ZIOAppDefault {
@@ -204,26 +178,6 @@ package zionomicon.solutions.AppendixCFunctionalDesign {
         _ <- zio.ZIO.attempt(println(s"   Result: $result8"))
         result9 <- zio.ZIO.attempt(threadSafeFactorial(5))
         _ <- zio.ZIO.attempt(println(s"   Result: $result9 (cached, using ConcurrentHashMap)"))
-
-        // Memoization with statistics
-        _ <- zio.ZIO.attempt(println("\n5. Memoization with cache statistics:"))
-        statsInfo <- zio.ZIO.attempt {
-          val (statFactorial, getStats) = defs.memoizeWithStats((n: Int) => {
-            println(s"   Computing factorial($n)...")
-            (1 to n).foldLeft(1L)(_ * _)
-          })
-
-          val result10 = statFactorial(4)
-          println(s"   Result: $result10")
-          val result11 = statFactorial(4)
-          println(s"   Result: $result11")
-          val result12 = statFactorial(5)
-          println(s"   Result for 5: $result12")
-          val (hits, misses) = getStats()
-          println(s"   Cache stats - Hits: $hits, Misses: $misses")
-          (hits, misses)
-        }
-        _ <- zio.ZIO.attempt(())
 
         _ <- zio.ZIO.attempt(println("\n=== Demo Complete ==="))
       } yield ()
