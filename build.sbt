@@ -24,7 +24,8 @@ libraryDependencies ++= Seq(
   "org.tpolecat"   %% "doobie-hikari"            % "1.0.0-RC9",
   "org.xerial"      % "sqlite-jdbc"              % "3.49.1.0",
   "org.openjdk.jmh" % "jmh-core"                 % "1.37",
-  "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.37"
+  "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.37",
+  "io.getkyo"      %% "kyo-scheduler"            % "0.19.0"
 )
 
 scalacOptions ++= Seq(
