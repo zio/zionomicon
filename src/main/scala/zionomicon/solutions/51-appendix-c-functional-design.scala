@@ -12,14 +12,14 @@ package zionomicon.solutions.AppendixCFunctionalDesign {
   }
 
   /**
-   * Implement a higher-order function that applies a function multiple times
-   * to an initial value.
+   * Implement a higher-order function that applies a function multiple times to
+   * an initial value.
    */
   package Exercise2 {
     object defs {
       def repeat[A](f: A => A, n: Int)(initial: A): A = {
         var result = initial
-        var i = 0
+        var i      = 0
         while (i < n) {
           result = f(result)
           i += 1
@@ -117,8 +117,8 @@ package zionomicon.solutions.AppendixCFunctionalDesign {
       }
 
       /**
-       * Alternative memoization using ConcurrentHashMap for thread-safe caching.
-       * This version is safe to use in multi-threaded environments.
+       * Alternative memoization using ConcurrentHashMap for thread-safe
+       * caching. This version is safe to use in multi-threaded environments.
        */
       def memoizeThreadSafe[A, B](f: A => B): A => B = {
         val cache = new java.util.concurrent.ConcurrentHashMap[A, B]()
@@ -145,10 +145,10 @@ package zionomicon.solutions.AppendixCFunctionalDesign {
 
         // Memoized version
         println("2. Memoized factorial calls:")
-        val memoizedFactorial = defs.memoize((n: Int) => {
+        val memoizedFactorial = defs.memoize { (n: Int) =>
           println(s"   Computing factorial($n)...")
           (1 to n).foldLeft(1L)(_ * _)
-        })
+        }
 
         val result3 = memoizedFactorial(5)
         println(s"   Result: $result3")
@@ -167,10 +167,10 @@ package zionomicon.solutions.AppendixCFunctionalDesign {
 
         // Thread-safe memoization alternative
         println("\n4. Thread-safe memoization:")
-        val threadSafeFactorial = defs.memoizeThreadSafe((n: Int) => {
+        val threadSafeFactorial = defs.memoizeThreadSafe { (n: Int) =>
           println(s"   Computing factorial($n) [thread-safe]...")
           (1 to n).foldLeft(1L)(_ * _)
-        })
+        }
 
         val result8 = threadSafeFactorial(5)
         println(s"   Result: $result8")

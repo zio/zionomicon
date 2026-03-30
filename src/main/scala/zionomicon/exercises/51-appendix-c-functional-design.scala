@@ -12,8 +12,8 @@ package zionomicon.exercises.AppendixCFunctionalDesign {
   }
 
   /**
-   * Implement a higher-order function that applies a function multiple times
-   * to an initial value.
+   * Implement a higher-order function that applies a function multiple times to
+   * an initial value.
    */
   package Exercise2 {
     object defs {
