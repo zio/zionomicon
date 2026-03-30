@@ -1,5 +1,6 @@
-package zionomicon.solutions.AppendixCFunctionalDesign {
+package zionomicon.solutions
 
+package AppendixCFunctionalDesign {
   /**
    * Implement function composition by creating a function that combines two
    * functions into a single function.
