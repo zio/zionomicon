@@ -190,7 +190,7 @@ package AppendixCFunctionalDesign {
   package Exercise10 {
     object defs {
       def optionToThrow[A, B](f: A => Option[B]): A => B =
-        a => f(a).getOrElse(throw new NoSuchElementException())
+        a => f(a).getOrElse(throw new NoSuchElementException(s"optionToThrow: function returned None for input: $a"))
     }
   }
 }
