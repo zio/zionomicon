@@ -474,26 +474,6 @@ package CommunicationProtocolsZIOHTTP {
           ) @@ RequestDurationLogging.impl.requestDurationLogging
       }
 
-      /**
-       * COMPOSABILITY EXAMPLE
-       *
-       * The HandlerAspect composition semantics guarantee proper ordering:
-       * Multiple middleware can be composed together with the @@ operator. Each
-       * middleware wraps the previous one, creating a stack.
-       *
-       * Example: val route = handler { ... }
-       * @@
-       *   requestDurationLogging
-       * @@
-       *   someOtherMiddleware
-       * @@
-       *   anotherMiddleware
-       *
-       * If any middleware in the incoming pipeline fails (e.g., returns an
-       * error), the response immediately goes to the outgoing pipeline, and all
-       * middlewares still execute their outgoing handlers in reverse order.
-       * This ensures proper cleanup and logging even when errors occur.
-       */
     }
 
   }
