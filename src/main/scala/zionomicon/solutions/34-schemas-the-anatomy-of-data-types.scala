@@ -97,6 +97,38 @@ package SchemaTheAnatomyOfDataTypes {
       }
     }
 
+    // ── AccessorBuilder for Query DSL ──────────────────────────────────────
+    /**
+     * Builds FieldAccessors from schema records using ZIO Schema's machinery.
+     * This accessor builder extracts field metadata and getter functions from
+     * the schema, eliminating the need for manual accessor construction.
+     */
+    object QueryDslAccessorBuilder extends AccessorBuilder {
+      override type Lens[F, S, A] = FieldAccessor[S, A]
+      override type Prism[F, S, A] = Unit
+      override type Traversal[S, A] = Unit
+
+      override def makeLens[F, S, A](
+        product: Schema.Record[S],
+        term: Schema.Field[S, A]
+      ): Lens[F, S, A] =
+        FieldAccessor[S, A](
+          product.id.name,
+          term.name,
+          s => term.get(s).asInstanceOf[A]
+        )
+
+      override def makePrism[F, S, A](
+        sum: Schema.Enum[S],
+        term: Schema.Case[S, A]
+      ): Prism[F, S, A] = ()
+
+      override def makeTraversal[S, A](
+        collection: Schema.Collection[S, A],
+        element: Schema[A]
+      ): Traversal[S, A] = ()
+    }
+
     sealed trait Query[S] {
       self =>
 
@@ -159,11 +191,14 @@ package SchemaTheAnatomyOfDataTypes {
       private val record: Schema.Record[Person] =
         schema.asInstanceOf[Schema.Record[Person]]
 
-      val name: FieldAccessor[Person, String] =
-        FieldAccessor.fromSchemaRecord(record, "name")
+      private def buildAccessor[A](fieldName: String): FieldAccessor[Person, A] =
+        QueryDslAccessorBuilder.makeLens[Any, Person, A](
+          record,
+          record.fields.find(_.name == fieldName).get.asInstanceOf[Schema.Field[Person, A]]
+        )
 
-      val age: FieldAccessor[Person, Int] =
-        FieldAccessor.fromSchemaRecord(record, "age")
+      val name: FieldAccessor[Person, String] = buildAccessor("name")
+      val age: FieldAccessor[Person, Int] = buildAccessor("age")
     }
 
     // ── Query interpreter ────────────────────────────────────────────────────
@@ -488,6 +523,38 @@ package SchemaTheAnatomyOfDataTypes {
       }
     }
 
+    // ── AccessorBuilder for Query DSL ──────────────────────────────────────
+    /**
+     * Builds FieldAccessors from schema records using ZIO Schema's machinery.
+     * This accessor builder extracts field metadata and getter functions from
+     * the schema, eliminating the need for manual accessor construction.
+     */
+    object QueryDslAccessorBuilder extends AccessorBuilder {
+      override type Lens[F, S, A] = FieldAccessor[S, A]
+      override type Prism[F, S, A] = Unit
+      override type Traversal[S, A] = Unit
+
+      override def makeLens[F, S, A](
+        product: Schema.Record[S],
+        term: Schema.Field[S, A]
+      ): Lens[F, S, A] =
+        FieldAccessor[S, A](
+          product.id.name,
+          term.name,
+          s => term.get(s).asInstanceOf[A]
+        )
+
+      override def makePrism[F, S, A](
+        sum: Schema.Enum[S],
+        term: Schema.Case[S, A]
+      ): Prism[F, S, A] = ()
+
+      override def makeTraversal[S, A](
+        collection: Schema.Collection[S, A],
+        element: Schema[A]
+      ): Traversal[S, A] = ()
+    }
+
     sealed trait Query[S] { self =>
       def &&(that: Query[S]): Query[S] = Query.And(self, that)
       def ||(that: Query[S]): Query[S] = Query.Or(self, that)
@@ -531,9 +598,15 @@ package SchemaTheAnatomyOfDataTypes {
       private val record: Schema.Record[Address] =
         schema.asInstanceOf[Schema.Record[Address]]
 
-      val country: FieldAccessor[Address, String] = FieldAccessor.fromSchemaRecord(record, "country")
-      val city: FieldAccessor[Address, String]    = FieldAccessor.fromSchemaRecord(record, "city")
-      val street: FieldAccessor[Address, String]  = FieldAccessor.fromSchemaRecord(record, "street")
+      private def buildAccessor[A](fieldName: String): FieldAccessor[Address, A] =
+        QueryDslAccessorBuilder.makeLens[Any, Address, A](
+          record,
+          record.fields.find(_.name == fieldName).get.asInstanceOf[Schema.Field[Address, A]]
+        )
+
+      val country: FieldAccessor[Address, String] = buildAccessor("country")
+      val city: FieldAccessor[Address, String] = buildAccessor("city")
+      val street: FieldAccessor[Address, String] = buildAccessor("street")
     }
 
     case class Person(name: String, age: Int, address: Address)
@@ -543,9 +616,15 @@ package SchemaTheAnatomyOfDataTypes {
       private val record: Schema.Record[Person] =
         schema.asInstanceOf[Schema.Record[Person]]
 
-      val name: FieldAccessor[Person, String]      = FieldAccessor.fromSchemaRecord(record, "name")
-      val age: FieldAccessor[Person, Int]          = FieldAccessor.fromSchemaRecord(record, "age")
-      val address: FieldAccessor[Person, Address]  = FieldAccessor.fromSchemaRecord(record, "address")
+      private def buildAccessor[A](fieldName: String): FieldAccessor[Person, A] =
+        QueryDslAccessorBuilder.makeLens[Any, Person, A](
+          record,
+          record.fields.find(_.name == fieldName).get.asInstanceOf[Schema.Field[Person, A]]
+        )
+
+      val name: FieldAccessor[Person, String] = buildAccessor("name")
+      val age: FieldAccessor[Person, Int] = buildAccessor("age")
+      val address: FieldAccessor[Person, Address] = buildAccessor("address")
     }
 
     // ── Spec ──────────────────────────────────────────────────────────────────
