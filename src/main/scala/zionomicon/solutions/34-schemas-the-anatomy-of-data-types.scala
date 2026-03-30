@@ -69,9 +69,9 @@ package SchemaTheAnatomyOfDataTypes {
         new FieldAccessor(recordType, fieldName, get)
 
       /**
-       * Derive a FieldAccessor from a ZIO Schema field.
-       * Uses the schema's TypeId name as the record type and the field's own
-       * name and getter — no manual wiring needed.
+       * Derive a FieldAccessor from a ZIO Schema field. Uses the schema's
+       * TypeId name as the record type and the field's own name and getter — no
+       * manual wiring needed.
        */
       def fromSchemaRecord[S, A](
         record: Schema.Record[S],
@@ -79,9 +79,11 @@ package SchemaTheAnatomyOfDataTypes {
       ): FieldAccessor[S, A] = {
         val field = record.fields
           .find(_.name == name)
-          .getOrElse(throw new NoSuchElementException(
-            s"Field '$name' not found in schema '${record.id.name}'"
-          ))
+          .getOrElse(
+            throw new NoSuchElementException(
+              s"Field '$name' not found in schema '${record.id.name}'"
+            )
+          )
         new FieldAccessor[S, A](
           record.id.name,
           field.name,
@@ -104,8 +106,8 @@ package SchemaTheAnatomyOfDataTypes {
      * the schema, eliminating the need for manual accessor construction.
      */
     object QueryDslAccessorBuilder extends AccessorBuilder {
-      override type Lens[F, S, A] = FieldAccessor[S, A]
-      override type Prism[F, S, A] = Unit
+      override type Lens[F, S, A]   = FieldAccessor[S, A]
+      override type Prism[F, S, A]  = Unit
       override type Traversal[S, A] = Unit
 
       override def makeLens[F, S, A](
@@ -191,22 +193,27 @@ package SchemaTheAnatomyOfDataTypes {
       private val record: Schema.Record[Person] =
         schema.asInstanceOf[Schema.Record[Person]]
 
-      private def buildAccessor[A](fieldName: String): FieldAccessor[Person, A] =
+      private def buildAccessor[A](
+        fieldName: String
+      ): FieldAccessor[Person, A] =
         QueryDslAccessorBuilder.makeLens[Any, Person, A](
           record,
-          record.fields.find(_.name == fieldName).get.asInstanceOf[Schema.Field[Person, A]]
+          record.fields
+            .find(_.name == fieldName)
+            .get
+            .asInstanceOf[Schema.Field[Person, A]]
         )
 
       val name: FieldAccessor[Person, String] = buildAccessor("name")
-      val age: FieldAccessor[Person, Int] = buildAccessor("age")
+      val age: FieldAccessor[Person, Int]     = buildAccessor("age")
     }
 
     // ── Query interpreter ────────────────────────────────────────────────────
 
     /**
-     * Evaluates a query against a record. The interpreter is fully generic:
-     * it knows nothing about `Person` or any other domain type. Field values
-     * are extracted via `FieldAccessor.get`; ordering is provided by the
+     * Evaluates a query against a record. The interpreter is fully generic: it
+     * knows nothing about `Person` or any other domain type. Field values are
+     * extracted via `FieldAccessor.get`; ordering is provided by the
      * `Ordering[A]` stored in each comparison node.
      */
     object QueryInterpreter {
@@ -277,11 +284,15 @@ package SchemaTheAnatomyOfDataTypes {
             },
             test(">= produces GreaterThanOrEqual") {
               val q: Query[Person] = Person.age >= 18
-              assertTrue(q == Query.GreaterThanOrEqual(Person.age, 18, Ordering[Int]))
+              assertTrue(
+                q == Query.GreaterThanOrEqual(Person.age, 18, Ordering[Int])
+              )
             },
             test("<= produces LessThanOrEqual") {
               val q: Query[Person] = Person.age <= 65
-              assertTrue(q == Query.LessThanOrEqual(Person.age, 65, Ordering[Int]))
+              assertTrue(
+                q == Query.LessThanOrEqual(Person.age, 65, Ordering[Int])
+              )
             },
             test("contains produces Contains") {
               assertTrue(
@@ -373,20 +384,24 @@ package SchemaTheAnatomyOfDataTypes {
                 QueryInterpreter.evaluate(Person.name.contains("John"), john),
                 !QueryInterpreter.evaluate(Person.name.contains("john"), john)
               )
-            },
+            }
           ),
           suite("FieldAccessor equality semantics")(
-            test("same (recordType, fieldName) are equal regardless of getter") {
+            test(
+              "same (recordType, fieldName) are equal regardless of getter"
+            ) {
               val a1 = FieldAccessor[Person, String]("Person", "name", _.name)
-              val a2 = FieldAccessor[Person, String]("Person", "name", p => p.name)
+              val a2 =
+                FieldAccessor[Person, String]("Person", "name", p => p.name)
               assertTrue(a1 == a2, a1.hashCode == a2.hashCode)
-            },
+            }
           ),
           suite("interpreter works on a second domain type")(
             test("evaluates queries over Product records") {
               case class Product(sku: String, price: Double)
-              val sku   = FieldAccessor[Product, String]("Product", "sku", _.sku)
-              val price = FieldAccessor[Product, Double]("Product", "price", _.price)
+              val sku = FieldAccessor[Product, String]("Product", "sku", _.sku)
+              val price =
+                FieldAccessor[Product, Double]("Product", "price", _.price)
 
               val products = List(
                 Product("A001", 9.99),
@@ -394,8 +409,9 @@ package SchemaTheAnatomyOfDataTypes {
                 Product("A003", 19.99)
               )
 
-              val query   = sku.contains("A") && (price > 15.0)
-              val results = products.filter(p => QueryInterpreter.evaluate(query, p))
+              val query = sku.contains("A") && (price > 15.0)
+              val results =
+                products.filter(p => QueryInterpreter.evaluate(query, p))
 
               assertTrue(results == List(Product("A003", 19.99)))
             }
@@ -422,17 +438,21 @@ package SchemaTheAnatomyOfDataTypes {
         for {
           _ <- Console.printLine("=== Query DSL Example ===")
           _ <- Console.printLine("\nAll adults (age >= 18):")
-          _ <- ZIO.foreach(find(Person.age >= 18))(p => Console.printLine(s"  $p"))
-          _ <- Console.printLine("\nPeople in their 30s (age >= 30 && age <= 39):")
+          _ <-
+            ZIO.foreach(find(Person.age >= 18))(p => Console.printLine(s"  $p"))
+          _ <-
+            Console.printLine("\nPeople in their 30s (age >= 30 && age <= 39):")
           _ <- ZIO.foreach(find((Person.age >= 30) && (Person.age <= 39)))(p =>
                  Console.printLine(s"  $p")
                )
           _ <- Console.printLine("\nPeople named 'John' or older than 40:")
-          _ <- ZIO.foreach(find(Person.name.contains("John") || (Person.age > 40)))(p =>
+          _ <- ZIO.foreach(
+                 find(Person.name.contains("John") || (Person.age > 40))
+               )(p => Console.printLine(s"  $p"))
+          _ <- Console.printLine("\nMinors (NOT age >= 18):")
+          _ <- ZIO.foreach(find(!(Person.age >= 18)))(p =>
                  Console.printLine(s"  $p")
                )
-          _ <- Console.printLine("\nMinors (NOT age >= 18):")
-          _ <- ZIO.foreach(find(!(Person.age >= 18)))(p => Console.printLine(s"  $p"))
         } yield ()
     }
   }
@@ -505,9 +525,11 @@ package SchemaTheAnatomyOfDataTypes {
       ): FieldAccessor[S, A] = {
         val field = record.fields
           .find(_.name == name)
-          .getOrElse(throw new NoSuchElementException(
-            s"Field '$name' not found in schema '${record.id.name}'"
-          ))
+          .getOrElse(
+            throw new NoSuchElementException(
+              s"Field '$name' not found in schema '${record.id.name}'"
+            )
+          )
         new FieldAccessor[S, A](
           record.id.name,
           field.name,
@@ -530,8 +552,8 @@ package SchemaTheAnatomyOfDataTypes {
      * the schema, eliminating the need for manual accessor construction.
      */
     object QueryDslAccessorBuilder extends AccessorBuilder {
-      override type Lens[F, S, A] = FieldAccessor[S, A]
-      override type Prism[F, S, A] = Unit
+      override type Lens[F, S, A]   = FieldAccessor[S, A]
+      override type Prism[F, S, A]  = Unit
       override type Traversal[S, A] = Unit
 
       override def makeLens[F, S, A](
@@ -562,13 +584,32 @@ package SchemaTheAnatomyOfDataTypes {
     }
 
     object Query {
-      case class Equal[S, A](field: FieldAccessor[S, A], value: A)       extends Query[S]
-      case class NotEqual[S, A](field: FieldAccessor[S, A], value: A)    extends Query[S]
-      case class GreaterThan[S, A](field: FieldAccessor[S, A], value: A, ord: Ordering[A]) extends Query[S]
-      case class LessThan[S, A](field: FieldAccessor[S, A], value: A, ord: Ordering[A])    extends Query[S]
-      case class GreaterThanOrEqual[S, A](field: FieldAccessor[S, A], value: A, ord: Ordering[A]) extends Query[S]
-      case class LessThanOrEqual[S, A](field: FieldAccessor[S, A], value: A, ord: Ordering[A])    extends Query[S]
-      case class Contains[S](field: FieldAccessor[S, String], value: String) extends Query[S]
+      case class Equal[S, A](field: FieldAccessor[S, A], value: A)
+          extends Query[S]
+      case class NotEqual[S, A](field: FieldAccessor[S, A], value: A)
+          extends Query[S]
+      case class GreaterThan[S, A](
+        field: FieldAccessor[S, A],
+        value: A,
+        ord: Ordering[A]
+      ) extends Query[S]
+      case class LessThan[S, A](
+        field: FieldAccessor[S, A],
+        value: A,
+        ord: Ordering[A]
+      ) extends Query[S]
+      case class GreaterThanOrEqual[S, A](
+        field: FieldAccessor[S, A],
+        value: A,
+        ord: Ordering[A]
+      ) extends Query[S]
+      case class LessThanOrEqual[S, A](
+        field: FieldAccessor[S, A],
+        value: A,
+        ord: Ordering[A]
+      ) extends Query[S]
+      case class Contains[S](field: FieldAccessor[S, String], value: String)
+          extends Query[S]
       case class And[S](left: Query[S], right: Query[S]) extends Query[S]
       case class Or[S](left: Query[S], right: Query[S])  extends Query[S]
       case class Not[S](query: Query[S])                 extends Query[S]
@@ -576,16 +617,23 @@ package SchemaTheAnatomyOfDataTypes {
 
     object QueryInterpreter {
       def evaluate[S](query: Query[S], record: S): Boolean = query match {
-        case Query.Equal(field, expected)                    => field.get(record) == expected
-        case Query.NotEqual(field, expected)                 => field.get(record) != expected
-        case Query.GreaterThan(field, threshold, ord)        => ord.compare(field.get(record), threshold) > 0
-        case Query.LessThan(field, threshold, ord)           => ord.compare(field.get(record), threshold) < 0
-        case Query.GreaterThanOrEqual(field, threshold, ord) => ord.compare(field.get(record), threshold) >= 0
-        case Query.LessThanOrEqual(field, threshold, ord)    => ord.compare(field.get(record), threshold) <= 0
-        case Query.Contains(field, substring)                => field.get(record).contains(substring)
-        case Query.And(left, right)                          => evaluate(left, record) && evaluate(right, record)
-        case Query.Or(left, right)                           => evaluate(left, record) || evaluate(right, record)
-        case Query.Not(inner)                                => !evaluate(inner, record)
+        case Query.Equal(field, expected)    => field.get(record) == expected
+        case Query.NotEqual(field, expected) => field.get(record) != expected
+        case Query.GreaterThan(field, threshold, ord) =>
+          ord.compare(field.get(record), threshold) > 0
+        case Query.LessThan(field, threshold, ord) =>
+          ord.compare(field.get(record), threshold) < 0
+        case Query.GreaterThanOrEqual(field, threshold, ord) =>
+          ord.compare(field.get(record), threshold) >= 0
+        case Query.LessThanOrEqual(field, threshold, ord) =>
+          ord.compare(field.get(record), threshold) <= 0
+        case Query.Contains(field, substring) =>
+          field.get(record).contains(substring)
+        case Query.And(left, right) =>
+          evaluate(left, record) && evaluate(right, record)
+        case Query.Or(left, right) =>
+          evaluate(left, record) || evaluate(right, record)
+        case Query.Not(inner) => !evaluate(inner, record)
       }
     }
 
@@ -598,15 +646,20 @@ package SchemaTheAnatomyOfDataTypes {
       private val record: Schema.Record[Address] =
         schema.asInstanceOf[Schema.Record[Address]]
 
-      private def buildAccessor[A](fieldName: String): FieldAccessor[Address, A] =
+      private def buildAccessor[A](
+        fieldName: String
+      ): FieldAccessor[Address, A] =
         QueryDslAccessorBuilder.makeLens[Any, Address, A](
           record,
-          record.fields.find(_.name == fieldName).get.asInstanceOf[Schema.Field[Address, A]]
+          record.fields
+            .find(_.name == fieldName)
+            .get
+            .asInstanceOf[Schema.Field[Address, A]]
         )
 
       val country: FieldAccessor[Address, String] = buildAccessor("country")
-      val city: FieldAccessor[Address, String] = buildAccessor("city")
-      val street: FieldAccessor[Address, String] = buildAccessor("street")
+      val city: FieldAccessor[Address, String]    = buildAccessor("city")
+      val street: FieldAccessor[Address, String]  = buildAccessor("street")
     }
 
     case class Person(name: String, age: Int, address: Address)
@@ -616,14 +669,19 @@ package SchemaTheAnatomyOfDataTypes {
       private val record: Schema.Record[Person] =
         schema.asInstanceOf[Schema.Record[Person]]
 
-      private def buildAccessor[A](fieldName: String): FieldAccessor[Person, A] =
+      private def buildAccessor[A](
+        fieldName: String
+      ): FieldAccessor[Person, A] =
         QueryDslAccessorBuilder.makeLens[Any, Person, A](
           record,
-          record.fields.find(_.name == fieldName).get.asInstanceOf[Schema.Field[Person, A]]
+          record.fields
+            .find(_.name == fieldName)
+            .get
+            .asInstanceOf[Schema.Field[Person, A]]
         )
 
-      val name: FieldAccessor[Person, String] = buildAccessor("name")
-      val age: FieldAccessor[Person, Int] = buildAccessor("age")
+      val name: FieldAccessor[Person, String]     = buildAccessor("name")
+      val age: FieldAccessor[Person, Int]         = buildAccessor("age")
       val address: FieldAccessor[Person, Address] = buildAccessor("address")
     }
 
@@ -631,11 +689,11 @@ package SchemaTheAnatomyOfDataTypes {
 
     object NestedQuerySpec extends ZIOSpecDefault {
 
-      val tokyo: Address   = Address("Japan", "Tokyo", "Shibuya")
-      val london: Address  = Address("UK", "London", "Baker St")
-      val john: Person     = Person("John Doe", 35, tokyo)
-      val alice: Person    = Person("Alice", 28, london)
-      val charlie: Person  = Person("Charlie", 42, tokyo)
+      val tokyo: Address  = Address("Japan", "Tokyo", "Shibuya")
+      val london: Address = Address("UK", "London", "Baker St")
+      val john: Person    = Person("John Doe", 35, tokyo)
+      val alice: Person   = Person("Alice", 28, london)
+      val charlie: Person = Person("Charlie", 42, tokyo)
 
       override def spec: Spec[TestEnvironment with Scope, Any] =
         suite("Nested Query DSL")(
@@ -644,7 +702,7 @@ package SchemaTheAnatomyOfDataTypes {
               val cityAccessor = Person.address / Address.city
               assertTrue(
                 cityAccessor.recordType == "Person",
-                cityAccessor.fieldName  == "address.city"
+                cityAccessor.fieldName == "address.city"
               )
             },
             test("/ chains getter functions correctly") {
@@ -653,7 +711,8 @@ package SchemaTheAnatomyOfDataTypes {
             },
             test("deeply nested path composes transitively") {
               case class World(person: Person)
-              val worldPerson = FieldAccessor[World, Person]("World", "person", _.person)
+              val worldPerson =
+                FieldAccessor[World, Person]("World", "person", _.person)
               val cityInWorld = worldPerson / Person.address / Address.city
               assertTrue(
                 cityInWorld.fieldName == "person.address.city",
@@ -670,7 +729,8 @@ package SchemaTheAnatomyOfDataTypes {
               )
             },
             test("combines nested and top-level conditions with &&") {
-              val q = (Person.name === "John Doe") && (Person.address / Address.city === "Tokyo")
+              val q =
+                (Person.name === "John Doe") && (Person.address / Address.city === "Tokyo")
               assertTrue(
                 QueryInterpreter.evaluate(q, john),
                 !QueryInterpreter.evaluate(q, alice),
@@ -679,30 +739,39 @@ package SchemaTheAnatomyOfDataTypes {
             },
             test("combines nested conditions with ||") {
               val q = (Person.address / Address.city === "Tokyo") ||
-                      (Person.address / Address.city === "London")
+                (Person.address / Address.city === "London")
               assertTrue(
                 QueryInterpreter.evaluate(q, john),
                 QueryInterpreter.evaluate(q, alice),
-                !QueryInterpreter.evaluate(q, Person("Bob", 20, Address("US", "NYC", "5th Ave")))
+                !QueryInterpreter.evaluate(
+                  q,
+                  Person("Bob", 20, Address("US", "NYC", "5th Ave"))
+                )
               )
             },
             test("contains on nested string field") {
               val q = (Person.address / Address.city).contains("ok")
               assertTrue(
-                QueryInterpreter.evaluate(q, john),   // "Tokyo" contains "ok"
-                !QueryInterpreter.evaluate(q, alice)  // "London" does not
+                QueryInterpreter.evaluate(q, john),  // "Tokyo" contains "ok"
+                !QueryInterpreter.evaluate(q, alice) // "London" does not
               )
             },
             test("> on nested numeric field") {
               case class Order(id: String, item: OrderItem)
               case class OrderItem(name: String, price: Double)
               val itemPrice = FieldAccessor[Order, Double](
-                "Order", "item.price", o => o.item.price
+                "Order",
+                "item.price",
+                o => o.item.price
               )
               val q = itemPrice > 20.0
               assertTrue(
-                QueryInterpreter.evaluate(q, Order("1", OrderItem("Widget", 49.99))),
-                !QueryInterpreter.evaluate(q, Order("2", OrderItem("Bolt", 0.99)))
+                QueryInterpreter
+                  .evaluate(q, Order("1", OrderItem("Widget", 49.99))),
+                !QueryInterpreter.evaluate(
+                  q,
+                  Order("2", OrderItem("Bolt", 0.99))
+                )
               )
             }
           ),
@@ -713,7 +782,9 @@ package SchemaTheAnatomyOfDataTypes {
               assertTrue(p1 == p2)
             },
             test("different path accessors are not equal") {
-              assertTrue((Person.address / Address.city) != (Person.address / Address.street))
+              assertTrue(
+                (Person.address / Address.city) != (Person.address / Address.street)
+              )
             }
           )
         )
@@ -725,9 +796,9 @@ package SchemaTheAnatomyOfDataTypes {
 
       val people: List[Person] = List(
         Person("John Doe", 35, Address("Japan", "Tokyo", "Shibuya")),
-        Person("Alice",    28, Address("UK",    "London", "Baker St")),
-        Person("Bob",      42, Address("Japan", "Tokyo", "Harajuku")),
-        Person("Carol",    31, Address("US",    "NYC",   "5th Ave"))
+        Person("Alice", 28, Address("UK", "London", "Baker St")),
+        Person("Bob", 42, Address("Japan", "Tokyo", "Harajuku")),
+        Person("Carol", 31, Address("US", "NYC", "5th Ave"))
       )
 
       def find(query: Query[Person]): List[Person] =
@@ -741,13 +812,21 @@ package SchemaTheAnatomyOfDataTypes {
                  Console.printLine(s"  ${p.name}")
                )
           _ <- Console.printLine("\nJohn Doe in Tokyo:")
-          _ <- ZIO.foreach(
-                 find((Person.name === "John Doe") && (Person.address / Address.city === "Tokyo"))
-               )(p => Console.printLine(s"  ${p.name}"))
+          _ <-
+            ZIO.foreach(
+              find(
+                (Person.name === "John Doe") && (Person.address / Address.city === "Tokyo")
+              )
+            )(p => Console.printLine(s"  ${p.name}"))
           _ <- Console.printLine("\nPeople in Japan OR older than 35:")
-          _ <- ZIO.foreach(
-                 find((Person.address / Address.country === "Japan") || (Person.age > 35))
-               )(p => Console.printLine(s"  ${p.name} (${p.age}, ${p.address.city})"))
+          _ <-
+            ZIO.foreach(
+              find(
+                (Person.address / Address.country === "Japan") || (Person.age > 35)
+              )
+            )(p =>
+              Console.printLine(s"  ${p.name} (${p.age}, ${p.address.city})")
+            )
         } yield ()
     }
   }
@@ -770,7 +849,8 @@ package SchemaTheAnatomyOfDataTypes {
       def encodeRow(value: A): List[String]
 
       def encode(values: List[A]): String =
-        (headers.mkString(",") :: values.map(v => encodeRow(v).mkString(","))).mkString("\n")
+        (headers.mkString(",") :: values.map(v => encodeRow(v).mkString(",")))
+          .mkString("\n")
     }
 
     // ── CsvDecoder[A] ────────────────────────────────────────────────────────
@@ -800,15 +880,19 @@ package SchemaTheAnatomyOfDataTypes {
         }
 
       /** Render a DynamicValue.Primitive as its CSV string. */
-      private def primitiveToString(dv: DynamicValue): Either[String, String] = dv match {
-        case DynamicValue.Primitive(value, _) => Right(value.toString)
-        case _ => Left("CSV only supports flat records; nested values are not supported")
-      }
+      private def primitiveToString(dv: DynamicValue): Either[String, String] =
+        dv match {
+          case DynamicValue.Primitive(value, _) => Right(value.toString)
+          case _ =>
+            Left(
+              "CSV only supports flat records; nested values are not supported"
+            )
+        }
 
       /**
        * ZIO Schema wraps field schemas in Schema.Lazy when deriving case class
-       * schemas (to support recursive types).  Forcing the lazy here ensures
-       * the inner Schema.Primitive is visible to the pattern match below.
+       * schemas (to support recursive types). Forcing the lazy here ensures the
+       * inner Schema.Primitive is visible to the pattern match below.
        */
       private def forceSchema(s: Schema[_]): Schema[_] = s match {
         case l: Schema.Lazy[_] => l.schema
@@ -817,7 +901,7 @@ package SchemaTheAnatomyOfDataTypes {
 
       /**
        * Parse a raw CSV string into a DynamicValue.Primitive using the field's
-       * Schema to determine the expected type.  Calls schema.fromDynamic later
+       * Schema to determine the expected type. Calls schema.fromDynamic later
        * so the type tag must match what ZIO Schema produced during toDynamic.
        */
       private def stringToPrimitive(
@@ -830,23 +914,29 @@ package SchemaTheAnatomyOfDataTypes {
               case StandardType.StringType =>
                 Right(DynamicValue.Primitive(s, StandardType.StringType))
               case StandardType.IntType =>
-                s.toIntOption.toRight(s"Not an Int: '$s'")
+                s.toIntOption
+                  .toRight(s"Not an Int: '$s'")
                   .map(DynamicValue.Primitive(_, StandardType.IntType))
               case StandardType.DoubleType =>
-                s.toDoubleOption.toRight(s"Not a Double: '$s'")
+                s.toDoubleOption
+                  .toRight(s"Not a Double: '$s'")
                   .map(DynamicValue.Primitive(_, StandardType.DoubleType))
               case StandardType.BoolType =>
                 s match {
-                  case "true"  => Right(DynamicValue.Primitive(true, StandardType.BoolType))
-                  case "false" => Right(DynamicValue.Primitive(false, StandardType.BoolType))
-                  case _       => Left(s"Not a Boolean: '$s'")
+                  case "true" =>
+                    Right(DynamicValue.Primitive(true, StandardType.BoolType))
+                  case "false" =>
+                    Right(DynamicValue.Primitive(false, StandardType.BoolType))
+                  case _ => Left(s"Not a Boolean: '$s'")
                 }
               case _ => Left(s"Unsupported CSV primitive type: $st")
             }
           case _ => Left("CSV only supports primitive field types")
         }
 
-      def encoder[A](implicit schema: Schema[A]): Either[String, CsvEncoder[A]] =
+      def encoder[A](implicit
+        schema: Schema[A]
+      ): Either[String, CsvEncoder[A]] =
         schema match {
           case record: Schema.Record[A] =>
             Right(new CsvEncoder[A] {
@@ -856,20 +946,30 @@ package SchemaTheAnatomyOfDataTypes {
                 schema.toDynamic(value) match {
                   case DynamicValue.Record(_, fieldValues) =>
                     headers.map(h =>
-                      fieldValues.get(h).flatMap(primitiveToString(_).toOption).getOrElse("")
+                      fieldValues
+                        .get(h)
+                        .flatMap(primitiveToString(_).toOption)
+                        .getOrElse("")
                     )
                   case _ =>
-                    sys.error("toDynamic returned non-Record for a record schema")
+                    sys.error(
+                      "toDynamic returned non-Record for a record schema"
+                    )
                 }
             })
           case _ => Left("CsvEncoder requires a record schema")
         }
 
-      def decoder[A](implicit schema: Schema[A]): Either[String, CsvDecoder[A]] =
+      def decoder[A](implicit
+        schema: Schema[A]
+      ): Either[String, CsvDecoder[A]] =
         schema match {
           case record: Schema.Record[A] =>
             val fieldSchemaByName: Map[String, Schema[_]] =
-              record.fields.map(f => f.name -> (f.schema: Schema[_])).toList.toMap
+              record.fields
+                .map(f => f.name -> (f.schema: Schema[_]))
+                .toList
+                .toMap
             Right(new CsvDecoder[A] {
               def decode(csv: String): Either[String, List[A]] = {
                 val lines = csv.split("\n", -1).toList
@@ -880,20 +980,26 @@ package SchemaTheAnatomyOfDataTypes {
                     traverseEither(dataLines.filter(_.nonEmpty)) { line =>
                       val values = line.split(",", -1).toList
                       if (values.length != parsedHeaders.length)
-                        Left(s"Expected ${parsedHeaders.length} columns, got ${values.length}")
+                        Left(
+                          s"Expected ${parsedHeaders.length} columns, got ${values.length}"
+                        )
                       else
                         for {
-                          dvFields <- traverseEither(parsedHeaders.zip(values)) {
-                            case (name, s) =>
-                              fieldSchemaByName
-                                .get(name)
-                                .toRight(s"Unknown field: '$name'")
-                                .flatMap(stringToPrimitive(s, _))
-                                .map(dv => name -> dv)
-                          }
-                          decoded  <- schema.fromDynamic(
-                            DynamicValue.Record(record.id, ListMap(dvFields: _*))
-                          )
+                          dvFields <- traverseEither(
+                                        parsedHeaders.zip(values)
+                                      ) { case (name, s) =>
+                                        fieldSchemaByName
+                                          .get(name)
+                                          .toRight(s"Unknown field: '$name'")
+                                          .flatMap(stringToPrimitive(s, _))
+                                          .map(dv => name -> dv)
+                                      }
+                          decoded <- schema.fromDynamic(
+                                       DynamicValue.Record(
+                                         record.id,
+                                         ListMap(dvFields: _*)
+                                       )
+                                     )
                         } yield decoded
                     }
                 }
@@ -923,9 +1029,11 @@ package SchemaTheAnatomyOfDataTypes {
 
     object CsvCodecSpec extends ZIOSpecDefault {
 
-      val alice: Employee   = Employee("Alice",   30, active = true,  salary = 75000.0)
-      val bob: Employee     = Employee("Bob",     25, active = false, salary = 55000.0)
-      val charlie: Employee = Employee("Charlie", 45, active = true,  salary = 120000.0)
+      val alice: Employee =
+        Employee("Alice", 30, active = true, salary = 75000.0)
+      val bob: Employee = Employee("Bob", 25, active = false, salary = 55000.0)
+      val charlie: Employee =
+        Employee("Charlie", 45, active = true, salary = 120000.0)
 
       val enc: CsvEncoder[Employee] = CsvCodec.encoder[Employee].toOption.get
       val dec: CsvDecoder[Employee] = CsvCodec.decoder[Employee].toOption.get
@@ -940,15 +1048,17 @@ package SchemaTheAnatomyOfDataTypes {
               assertTrue(enc.headers == List("name", "age", "active", "salary"))
             },
             test("encodeRow produces comma-separated primitive strings") {
-              assertTrue(enc.encodeRow(alice) == List("Alice", "30", "true", "75000.0"))
+              assertTrue(
+                enc.encodeRow(alice) == List("Alice", "30", "true", "75000.0")
+              )
             },
             test("encode produces header line followed by data rows") {
               val csv   = enc.encode(List(alice, bob))
               val lines = csv.split("\n").toList
               assertTrue(
                 lines.head == "name,age,active,salary",
-                lines(1)   == "Alice,30,true,75000.0",
-                lines(2)   == "Bob,25,false,55000.0"
+                lines(1) == "Alice,30,true,75000.0",
+                lines(2) == "Bob,25,false,55000.0"
               )
             },
             test("encode with empty list produces only the header line") {
@@ -990,8 +1100,11 @@ package SchemaTheAnatomyOfDataTypes {
               assertTrue(dec.decode(enc.encode(employees)) == Right(employees))
             },
             test("round-trip preserves all primitive field types") {
-              val original = Employee("D'Artagnan", 33, active = true, salary = 99999.99)
-              assertTrue(dec.decode(enc.encode(List(original))) == Right(List(original)))
+              val original =
+                Employee("D'Artagnan", 33, active = true, salary = 99999.99)
+              assertTrue(
+                dec.decode(enc.encode(List(original))) == Right(List(original))
+              )
             }
           ),
           suite("ZIO Schema integration")(
@@ -1001,10 +1114,15 @@ package SchemaTheAnatomyOfDataTypes {
                 dv == DynamicValue.Record(
                   employeeRecord.id,
                   ListMap(
-                    "name"   -> DynamicValue.Primitive("Alice",   StandardType.StringType),
-                    "age"    -> DynamicValue.Primitive(30,        StandardType.IntType),
-                    "active" -> DynamicValue.Primitive(true,      StandardType.BoolType),
-                    "salary" -> DynamicValue.Primitive(75000.0,   StandardType.DoubleType)
+                    "name" -> DynamicValue
+                      .Primitive("Alice", StandardType.StringType),
+                    "age" -> DynamicValue.Primitive(30, StandardType.IntType),
+                    "active" -> DynamicValue
+                      .Primitive(true, StandardType.BoolType),
+                    "salary" -> DynamicValue.Primitive(
+                      75000.0,
+                      StandardType.DoubleType
+                    )
                   )
                 )
               )
@@ -1013,10 +1131,15 @@ package SchemaTheAnatomyOfDataTypes {
               val dv = DynamicValue.Record(
                 employeeRecord.id,
                 ListMap(
-                  "name"   -> DynamicValue.Primitive("Alice",   StandardType.StringType),
-                  "age"    -> DynamicValue.Primitive(30,        StandardType.IntType),
-                  "active" -> DynamicValue.Primitive(true,      StandardType.BoolType),
-                  "salary" -> DynamicValue.Primitive(75000.0,   StandardType.DoubleType)
+                  "name" -> DynamicValue
+                    .Primitive("Alice", StandardType.StringType),
+                  "age" -> DynamicValue.Primitive(30, StandardType.IntType),
+                  "active" -> DynamicValue
+                    .Primitive(true, StandardType.BoolType),
+                  "salary" -> DynamicValue.Primitive(
+                    75000.0,
+                    StandardType.DoubleType
+                  )
                 )
               )
               assertTrue(Employee.schema.fromDynamic(dv) == Right(alice))
@@ -1025,8 +1148,9 @@ package SchemaTheAnatomyOfDataTypes {
               val dv = DynamicValue.Record(
                 employeeRecord.id,
                 ListMap(
-                  "name" -> DynamicValue.Primitive("Alice", StandardType.StringType),
-                  "age"  -> DynamicValue.Primitive(30,      StandardType.IntType)
+                  "name" -> DynamicValue
+                    .Primitive("Alice", StandardType.StringType),
+                  "age" -> DynamicValue.Primitive(30, StandardType.IntType)
                 )
               )
               assertTrue(Employee.schema.fromDynamic(dv).isLeft)
@@ -1044,7 +1168,7 @@ package SchemaTheAnatomyOfDataTypes {
             test("Schema[Boolean] round-trips via toDynamic / fromDynamic") {
               val s = Schema[Boolean]
               assertTrue(
-                s.fromDynamic(s.toDynamic(true))  == Right(true),
+                s.fromDynamic(s.toDynamic(true)) == Right(true),
                 s.fromDynamic(s.toDynamic(false)) == Right(false)
               )
             }
@@ -1068,27 +1192,34 @@ package SchemaTheAnatomyOfDataTypes {
     object Exercise3Example extends ZIOAppDefault {
 
       val employees: List[Employee] = List(
-        Employee("Alice",   30, active = true,  salary = 75000.0),
-        Employee("Bob",     25, active = false, salary = 55000.0),
-        Employee("Charlie", 45, active = true,  salary = 120000.0)
+        Employee("Alice", 30, active = true, salary = 75000.0),
+        Employee("Bob", 25, active = false, salary = 55000.0),
+        Employee("Charlie", 45, active = true, salary = 120000.0)
       )
 
       def run: ZIO[Any, Throwable, Unit] =
         for {
-          enc     <- ZIO.fromEither(CsvCodec.encoder[Employee]).mapError(new RuntimeException(_))
-          dec     <- ZIO.fromEither(CsvCodec.decoder[Employee]).mapError(new RuntimeException(_))
+          enc <- ZIO
+                   .fromEither(CsvCodec.encoder[Employee])
+                   .mapError(new RuntimeException(_))
+          dec <- ZIO
+                   .fromEither(CsvCodec.decoder[Employee])
+                   .mapError(new RuntimeException(_))
 
-          _       <- Console.printLine("=== CSV Codec Example ===\n")
+          _ <- Console.printLine("=== CSV Codec Example ===\n")
 
-          csv      = enc.encode(employees)
-          _       <- Console.printLine("Encoded CSV:")
-          _       <- Console.printLine(csv)
+          csv = enc.encode(employees)
+          _  <- Console.printLine("Encoded CSV:")
+          _  <- Console.printLine(csv)
 
-          _       <- Console.printLine("\nDecoded back:")
-          decoded <- ZIO.fromEither(dec.decode(csv)).mapError(new RuntimeException(_))
-          _       <- ZIO.foreach(decoded)(e => Console.printLine(s"  $e"))
+          _ <- Console.printLine("\nDecoded back:")
+          decoded <-
+            ZIO.fromEither(dec.decode(csv)).mapError(new RuntimeException(_))
+          _ <- ZIO.foreach(decoded)(e => Console.printLine(s"  $e"))
 
-          _       <- Console.printLine(s"\nRound-trip successful: ${decoded == employees}")
+          _ <- Console.printLine(
+                 s"\nRound-trip successful: ${decoded == employees}"
+               )
         } yield ()
     }
   }
