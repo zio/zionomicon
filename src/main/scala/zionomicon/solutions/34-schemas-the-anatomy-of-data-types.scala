@@ -73,10 +73,11 @@ package SchemaTheAnatomyOfDataTypes {
        * TypeId name as the record type and the field's own name and getter — no
        * manual wiring needed.
        *
-       * Type Safety: Callers must ensure that the requested type `A` matches the
-       * field's schema. If `A` does not match, this will throw `ClassCastException`
-       * at runtime. For type-safe access, use the statically-typed accessor methods
-       * (e.g., `Person.name` instead of `fromSchemaRecord[Person, Int]("name")`).
+       * Type Safety: Callers must ensure that the requested type `A` matches
+       * the field's schema. If `A` does not match, this will throw
+       * `ClassCastException` at runtime. For type-safe access, use the
+       * statically-typed accessor methods (e.g., `Person.name` instead of
+       * `fromSchemaRecord[Person, Int]("name")`).
        */
       def fromSchemaRecord[S, A](
         record: Schema.Record[S],
@@ -874,7 +875,7 @@ package SchemaTheAnatomyOfDataTypes {
           .foldLeft(empty) { (acc, value) =>
             for {
               rows <- acc
-              row <- encodeRow(value)
+              row  <- encodeRow(value)
             } yield row :: rows
           }
           .map(rows =>
@@ -1084,7 +1085,9 @@ package SchemaTheAnatomyOfDataTypes {
             },
             test("encodeRow produces comma-separated primitive strings") {
               assertTrue(
-                enc.encodeRow(alice) == Right(List("Alice", "30", "true", "75000.0"))
+                enc.encodeRow(alice) == Right(
+                  List("Alice", "30", "true", "75000.0")
+                )
               )
             },
             test("encode produces header line followed by data rows") {
@@ -1143,20 +1146,24 @@ package SchemaTheAnatomyOfDataTypes {
             test("encode then decode returns original values") {
               val employees = List(alice, bob, charlie)
               assertTrue(
-                enc.encode(employees).fold(
-                  _ => false,
-                  csv => dec.decode(csv) == Right(employees)
-                )
+                enc
+                  .encode(employees)
+                  .fold(
+                    _ => false,
+                    csv => dec.decode(csv) == Right(employees)
+                  )
               )
             },
             test("round-trip preserves all primitive field types") {
               val original =
                 Employee("D'Artagnan", 33, active = true, salary = 99999.99)
               assertTrue(
-                enc.encode(List(original)).fold(
-                  _ => false,
-                  csv => dec.decode(csv) == Right(List(original))
-                )
+                enc
+                  .encode(List(original))
+                  .fold(
+                    _ => false,
+                    csv => dec.decode(csv) == Right(List(original))
+                  )
               )
             }
           ),
@@ -1262,10 +1269,10 @@ package SchemaTheAnatomyOfDataTypes {
           _ <- Console.printLine("=== CSV Codec Example ===\n")
 
           csv <- ZIO
-                  .fromEither(enc.encode(employees))
-                  .mapError(new RuntimeException(_))
-          _  <- Console.printLine("Encoded CSV:")
-          _  <- Console.printLine(csv)
+                   .fromEither(enc.encode(employees))
+                   .mapError(new RuntimeException(_))
+          _ <- Console.printLine("Encoded CSV:")
+          _ <- Console.printLine(csv)
 
           _ <- Console.printLine("\nDecoded back:")
           decoded <-

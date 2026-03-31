@@ -6,8 +6,8 @@ package SchemaTheAnatomyOfDataTypes {
    *   1. Extend the query DSL with additional comparison operators.
    *
    * The query DSL from this chapter currently supports only equality checks
-   * with the `===` operator. Extend the `Query` sealed trait and `FieldAccessor`
-   * to support the following operators:
+   * with the `===` operator. Extend the `Query` sealed trait and
+   * `FieldAccessor` to support the following operators:
    *   - `>` (greater than)
    *   - `<` (less than)
    *   - `>=` (greater than or equal)
