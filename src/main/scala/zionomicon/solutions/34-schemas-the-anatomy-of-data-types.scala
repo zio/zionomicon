@@ -72,6 +72,11 @@ package SchemaTheAnatomyOfDataTypes {
        * Derive a FieldAccessor from a ZIO Schema field. Uses the schema's
        * TypeId name as the record type and the field's own name and getter — no
        * manual wiring needed.
+       *
+       * Type Safety: Callers must ensure that the requested type `A` matches the
+       * field's schema. If `A` does not match, this will throw `ClassCastException`
+       * at runtime. For type-safe access, use the statically-typed accessor methods
+       * (e.g., `Person.name` instead of `fromSchemaRecord[Person, Int]("name")`).
        */
       def fromSchemaRecord[S, A](
         record: Schema.Record[S],
@@ -195,14 +200,19 @@ package SchemaTheAnatomyOfDataTypes {
 
       private def buildAccessor[A](
         fieldName: String
-      ): FieldAccessor[Person, A] =
+      ): FieldAccessor[Person, A] = {
+        val field = record.fields
+          .find(_.name == fieldName)
+          .getOrElse(
+            throw new NoSuchElementException(
+              s"Field '$fieldName' not found in Person schema"
+            )
+          )
         QueryDslAccessorBuilder.makeLens[Any, Person, A](
           record,
-          record.fields
-            .find(_.name == fieldName)
-            .get
-            .asInstanceOf[Schema.Field[Person, A]]
+          field.asInstanceOf[Schema.Field[Person, A]]
         )
+      }
 
       val name: FieldAccessor[Person, String] = buildAccessor("name")
       val age: FieldAccessor[Person, Int]     = buildAccessor("age")
@@ -648,14 +658,19 @@ package SchemaTheAnatomyOfDataTypes {
 
       private def buildAccessor[A](
         fieldName: String
-      ): FieldAccessor[Address, A] =
+      ): FieldAccessor[Address, A] = {
+        val field = record.fields
+          .find(_.name == fieldName)
+          .getOrElse(
+            throw new NoSuchElementException(
+              s"Field '$fieldName' not found in Address schema"
+            )
+          )
         QueryDslAccessorBuilder.makeLens[Any, Address, A](
           record,
-          record.fields
-            .find(_.name == fieldName)
-            .get
-            .asInstanceOf[Schema.Field[Address, A]]
+          field.asInstanceOf[Schema.Field[Address, A]]
         )
+      }
 
       val country: FieldAccessor[Address, String] = buildAccessor("country")
       val city: FieldAccessor[Address, String]    = buildAccessor("city")
@@ -671,14 +686,19 @@ package SchemaTheAnatomyOfDataTypes {
 
       private def buildAccessor[A](
         fieldName: String
-      ): FieldAccessor[Person, A] =
+      ): FieldAccessor[Person, A] = {
+        val field = record.fields
+          .find(_.name == fieldName)
+          .getOrElse(
+            throw new NoSuchElementException(
+              s"Field '$fieldName' not found in Person schema"
+            )
+          )
         QueryDslAccessorBuilder.makeLens[Any, Person, A](
           record,
-          record.fields
-            .find(_.name == fieldName)
-            .get
-            .asInstanceOf[Schema.Field[Person, A]]
+          field.asInstanceOf[Schema.Field[Person, A]]
         )
+      }
 
       val name: FieldAccessor[Person, String]     = buildAccessor("name")
       val age: FieldAccessor[Person, Int]         = buildAccessor("age")
@@ -846,11 +866,22 @@ package SchemaTheAnatomyOfDataTypes {
 
     trait CsvEncoder[A] {
       def headers: List[String]
-      def encodeRow(value: A): List[String]
+      def encodeRow(value: A): Either[String, List[String]]
 
-      def encode(values: List[A]): String =
-        (headers.mkString(",") :: values.map(v => encodeRow(v).mkString(",")))
-          .mkString("\n")
+      def encode(values: List[A]): Either[String, String] = {
+        val empty: Either[String, List[List[String]]] = Right(Nil)
+        values
+          .foldLeft(empty) { (acc, value) =>
+            for {
+              rows <- acc
+              row <- encodeRow(value)
+            } yield row :: rows
+          }
+          .map(rows =>
+            (headers.mkString(",") :: rows.reverse.map(_.mkString(",")))
+              .mkString("\n")
+          )
+      }
     }
 
     // ── CsvDecoder[A] ────────────────────────────────────────────────────────
@@ -874,10 +905,14 @@ package SchemaTheAnatomyOfDataTypes {
 
       private def traverseEither[A, B](
         list: List[A]
-      )(f: A => Either[String, B]): Either[String, List[B]] =
-        list.foldRight[Either[String, List[B]]](Right(Nil)) { (a, acc) =>
-          for { rest <- acc; b <- f(a) } yield b :: rest
-        }
+      )(f: A => Either[String, B]): Either[String, List[B]] = {
+        val empty: Either[String, List[B]] = Right(Nil)
+        list
+          .foldLeft[Either[String, List[B]]](empty) { (acc, a) =>
+            for { rest <- acc; b <- f(a) } yield b :: rest
+          }
+          .map(_.reverse)
+      }
 
       /** Render a DynamicValue.Primitive as its CSV string. */
       private def primitiveToString(dv: DynamicValue): Either[String, String] =
@@ -942,17 +977,17 @@ package SchemaTheAnatomyOfDataTypes {
             Right(new CsvEncoder[A] {
               val headers: List[String] = record.fields.map(_.name).toList
 
-              def encodeRow(value: A): List[String] =
+              def encodeRow(value: A): Either[String, List[String]] =
                 schema.toDynamic(value) match {
                   case DynamicValue.Record(_, fieldValues) =>
-                    headers.map(h =>
+                    traverseEither(headers) { h =>
                       fieldValues
                         .get(h)
-                        .flatMap(primitiveToString(_).toOption)
-                        .getOrElse("")
-                    )
+                        .toRight(s"Missing field: '$h'")
+                        .flatMap(primitiveToString)
+                    }
                   case _ =>
-                    sys.error(
+                    Left(
                       "toDynamic returned non-Record for a record schema"
                     )
                 }
@@ -972,7 +1007,7 @@ package SchemaTheAnatomyOfDataTypes {
                 .toMap
             Right(new CsvDecoder[A] {
               def decode(csv: String): Either[String, List[A]] = {
-                val lines = csv.split("\n", -1).toList
+                val lines = csv.replaceAll("\r\n", "\n").split("\n", -1).toList
                 lines match {
                   case Nil => Right(Nil)
                   case headerLine :: dataLines =>
@@ -1049,20 +1084,25 @@ package SchemaTheAnatomyOfDataTypes {
             },
             test("encodeRow produces comma-separated primitive strings") {
               assertTrue(
-                enc.encodeRow(alice) == List("Alice", "30", "true", "75000.0")
+                enc.encodeRow(alice) == Right(List("Alice", "30", "true", "75000.0"))
               )
             },
             test("encode produces header line followed by data rows") {
-              val csv   = enc.encode(List(alice, bob))
-              val lines = csv.split("\n").toList
+              val csvEither = enc.encode(List(alice, bob))
               assertTrue(
-                lines.head == "name,age,active,salary",
-                lines(1) == "Alice,30,true,75000.0",
-                lines(2) == "Bob,25,false,55000.0"
+                csvEither.fold(
+                  _ => false,
+                  csv => {
+                    val lines = csv.split("\n").toList
+                    lines.head == "name,age,active,salary" &&
+                    lines(1) == "Alice,30,true,75000.0" &&
+                    lines(2) == "Bob,25,false,55000.0"
+                  }
+                )
               )
             },
             test("encode with empty list produces only the header line") {
-              assertTrue(enc.encode(Nil) == "name,age,active,salary")
+              assertTrue(enc.encode(Nil) == Right("name,age,active,salary"))
             }
           ),
           suite("CsvDecoder")(
@@ -1071,8 +1111,13 @@ package SchemaTheAnatomyOfDataTypes {
               assertTrue(dec.decode(csv) == Right(List(alice)))
             },
             test("decode reconstructs multiple rows") {
-              val csv = enc.encode(List(alice, bob, charlie))
-              assertTrue(dec.decode(csv) == Right(List(alice, bob, charlie)))
+              val csvEither = enc.encode(List(alice, bob, charlie))
+              assertTrue(
+                csvEither.fold(
+                  _ => false,
+                  csv => dec.decode(csv) == Right(List(alice, bob, charlie))
+                )
+              )
             },
             test("decode returns Left for wrong column count") {
               val csv = "name,age,active,salary\nAlice,30"
@@ -1097,13 +1142,21 @@ package SchemaTheAnatomyOfDataTypes {
           suite("round-trip")(
             test("encode then decode returns original values") {
               val employees = List(alice, bob, charlie)
-              assertTrue(dec.decode(enc.encode(employees)) == Right(employees))
+              assertTrue(
+                enc.encode(employees).fold(
+                  _ => false,
+                  csv => dec.decode(csv) == Right(employees)
+                )
+              )
             },
             test("round-trip preserves all primitive field types") {
               val original =
                 Employee("D'Artagnan", 33, active = true, salary = 99999.99)
               assertTrue(
-                dec.decode(enc.encode(List(original))) == Right(List(original))
+                enc.encode(List(original)).fold(
+                  _ => false,
+                  csv => dec.decode(csv) == Right(List(original))
+                )
               )
             }
           ),
@@ -1208,7 +1261,9 @@ package SchemaTheAnatomyOfDataTypes {
 
           _ <- Console.printLine("=== CSV Codec Example ===\n")
 
-          csv = enc.encode(employees)
+          csv <- ZIO
+                  .fromEither(enc.encode(employees))
+                  .mapError(new RuntimeException(_))
           _  <- Console.printLine("Encoded CSV:")
           _  <- Console.printLine(csv)
 

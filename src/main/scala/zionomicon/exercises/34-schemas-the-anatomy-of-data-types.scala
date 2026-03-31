@@ -6,13 +6,13 @@ package SchemaTheAnatomyOfDataTypes {
    *   1. Extend the query DSL with additional comparison operators.
    *
    * The query DSL from this chapter currently supports only equality checks
-   * with the `==` operator. Extend the `Query` sealed trait and `FieldAccessor`
+   * with the `===` operator. Extend the `Query` sealed trait and `FieldAccessor`
    * to support the following operators:
    *   - `>` (greater than)
    *   - `<` (less than)
    *   - `>=` (greater than or equal)
    *   - `<=` (less than or equal)
-   *   - `!=` (not equal)
+   *   - `!==` (not equal)
    *   - `contains` (for string fields)
    *
    * Hint: You will need to add new case classes to the `Query` sealed trait for
@@ -33,10 +33,10 @@ package SchemaTheAnatomyOfDataTypes {
    * }}}
    *
    * You should be able to write queries like:
-   *   - `(Person.name == "John") && (Person.address.city == "Tokyo")`
+   *   - `(Person.name === "John") && ((Person.address / Address.city) === "Tokyo")`
    *
    * Update the `FieldAccessor` and `Query` types to support path-based field
-   * access through nested structures.
+   * access through nested structures using `/` composition for path navigation.
    */
   package NestedQuerySupport {}
 
