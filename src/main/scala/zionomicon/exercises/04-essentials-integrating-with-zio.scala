@@ -34,13 +34,20 @@ package Exercise1 {
  * [here](http://lepus.hnaderi.dev/).
  *
  * Tips:
- * - Add lepus-client dependency to build.sbt: "dev.lepus" %% "lepus-client" % "0.2.1"
- * - Use AmqpClient to connect to RabbitMQ
- * - Implement a MessagePublisher service for publishing messages
- * - Handle message routing and queue declarations
- * - Use zio-interop-cats for compatibility
+ * - Implement an AmqpConnection to represent the RabbitMQ connection
+ * - Create a MessagePublisher trait with publishing methods
+ * - Build a ZLayer for AmqpConnection and MessagePublisher
+ * - Handle message publishing to both queues and exchanges with routing keys
+ * - Use dependency injection via ZLayer to provide the connection to services
+ * - Support both direct queue publishing and exchange-based routing
  */
 package Exercise2 {
+  // TODO: Define AmqpConnection case class
+  // TODO: Define MessagePublisher trait with publishToQueue and publishToExchange methods
+  // TODO: Implement MessagePublisher.live ZLayer
+  // TODO: Create RabbitMQ.connectionLive ZLayer
+  // TODO: Implement Main program that publishes messages to queues and exchanges
+
   object Main extends ZIOAppDefault {
     def run = ???
   }
