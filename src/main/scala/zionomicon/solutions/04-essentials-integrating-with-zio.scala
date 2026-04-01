@@ -152,7 +152,6 @@ package Exercise1 {
           UserService.live
         )
         .tapError(error => Console.printLineError(s"Error: ${error.getMessage}"))
-        .exitCode
   }
 }
 
@@ -161,11 +160,11 @@ package Exercise1 {
  * publish arbitrary messages to a queue. Lepus is a purely functional
  * Scala client for RabbitMQ. You can find the library homepage
  * [here](http://lepus.hnaderi.dev/).
+ *
+ * Hint: You'll need to add the lepus dependency to build.sbt:
+ * "dev.lepus" %% "lepus-client" % "0.2.1"
  */
 package Exercise2 {
-  import dev.lepus.client.api._
-  import zio.interop.catz._
-
   // Message Publisher Service
   trait MessagePublisher {
     def publishToQueue(queueName: String, message: String): Task[Unit]
@@ -177,7 +176,8 @@ package Exercise2 {
   }
 
   object MessagePublisher {
-    val live: ZLayer[AmqpConnection, Throwable, MessagePublisher] = ???
+    // TODO: Implement using AmqpConnection from lepus
+    val live: ZLayer[Any, Throwable, MessagePublisher] = ???
   }
 
   object Main extends ZIOAppDefault {

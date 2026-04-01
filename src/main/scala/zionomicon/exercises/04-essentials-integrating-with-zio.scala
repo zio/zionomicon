@@ -34,6 +34,7 @@ package Exercise1 {
  * [here](http://lepus.hnaderi.dev/).
  *
  * Tips:
+ * - Add lepus-client dependency to build.sbt: "dev.lepus" %% "lepus-client" % "0.2.1"
  * - Use AmqpClient to connect to RabbitMQ
  * - Implement a MessagePublisher service for publishing messages
  * - Handle message routing and queue declarations
