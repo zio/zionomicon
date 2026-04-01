@@ -156,17 +156,15 @@ package Exercise1 {
 }
 
 /**
- * Write a ZIO program that uses lepus to connect to RabbitMQ server and
- * publish arbitrary messages to a queue. Lepus is a purely functional
- * Scala client for RabbitMQ. You can find the library homepage
- * [here](http://lepus.hnaderi.dev/).
+ * Write a ZIO program that uses RabbitMQ AMQP client to connect to RabbitMQ
+ * server and publish arbitrary messages to a queue. This demonstrates
+ * integrating with Java/AMQP libraries through ZIO.
  *
- * This implementation demonstrates the pattern using a simulated AMQP
- * message queue. In a real scenario with Lepus available, this would
- * use the actual Lepus AMQP client.
+ * The RabbitMQ AMQP client is a standard Java client for RabbitMQ.
+ * See: https://www.rabbitmq.com/api-guide.html
  */
 package Exercise2 {
-  import java.util.concurrent.ConcurrentLinkedQueue
+  import com.rabbitmq.client.{Channel, Connection, ConnectionFactory}
 
   // Message Publisher Service
   trait MessagePublisher {
@@ -178,16 +176,14 @@ package Exercise2 {
     ): Task[Unit]
   }
 
-  // Simulated AMQP Connection (represents a real AMQP connection)
-  case class AmqpConnection(queues: ConcurrentLinkedQueue[(String, String)])
-
   object MessagePublisher {
-    val live: ZLayer[AmqpConnection, Nothing, MessagePublisher] =
-      ZLayer.fromFunction { (connection: AmqpConnection) =>
+    val live: ZLayer[Channel, Throwable, MessagePublisher] =
+      ZLayer.fromFunction { (channel: Channel) =>
         new MessagePublisher {
           def publishToQueue(queueName: String, message: String): Task[Unit] =
-            ZIO.succeed {
-              val _ = connection.queues.offer((queueName, message))
+            ZIO.attempt {
+              channel.queueDeclare(queueName, false, false, false, null)
+              channel.basicPublish("", queueName, null, message.getBytes())
             }
 
           def publishToExchange(
@@ -195,22 +191,41 @@ package Exercise2 {
             routingKey: String,
             message: String
           ): Task[Unit] =
-            ZIO.succeed {
-              // In a real implementation, exchange would route to bound queues
-              // For now, we'll create a queue name from exchange and routing key
-              val queueName = s"$exchangeName.${routingKey.replace(".", "_")}"
-              val _         = connection.queues.offer((queueName, message))
+            ZIO.attempt {
+              channel.exchangeDeclare(exchangeName, "direct", false)
+              channel.basicPublish(
+                exchangeName,
+                routingKey,
+                null,
+                message.getBytes()
+              )
             }
         }
       }
   }
 
-  // AMQP Connection Layer
+  // RabbitMQ Connection and Channel Layers
   object RabbitMQ {
-    val connectionLive: ZLayer[Any, Nothing, AmqpConnection] =
-      ZLayer.fromZIO {
-        ZIO.succeed {
-          AmqpConnection(new ConcurrentLinkedQueue[(String, String)]())
+    val connectionLive: ZLayer[Any, Throwable, Connection] =
+      ZLayer.scoped {
+        ZIO.attempt {
+          val factory = new ConnectionFactory()
+          factory.setHost("localhost")
+          factory.setPort(5672)
+          factory.setUsername("guest")
+          factory.setPassword("guest")
+          factory.newConnection()
+        }.flatMap { connection =>
+          ZIO.addFinalizer(ZIO.attempt(connection.close()).ignoreLogged).as(connection)
+        }
+      }
+
+    val channelLive: ZLayer[Connection, Throwable, Channel] =
+      ZLayer.scoped {
+        ZIO.service[Connection].flatMap { connection =>
+          ZIO.attempt(connection.createChannel()).flatMap { channel =>
+            ZIO.addFinalizer(ZIO.attempt(channel.close()).ignoreLogged).as(channel)
+          }
         }
       }
   }
@@ -258,6 +273,7 @@ package Exercise2 {
     def run =
       program.provide(
         RabbitMQ.connectionLive,
+        RabbitMQ.channelLive,
         MessagePublisher.live
       )
   }

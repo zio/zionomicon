@@ -28,25 +28,31 @@ package Exercise1 {
 }
 
 /**
- * Write a ZIO program that uses lepus to connect to RabbitMQ server and
- * publish arbitrary messages to a queue. Lepus is a purely functional
- * Scala client for RabbitMQ. You can find the library homepage
- * [here](http://lepus.hnaderi.dev/).
+ * Write a ZIO program that uses RabbitMQ AMQP client to connect to RabbitMQ
+ * server and publish arbitrary messages to a queue. This demonstrates
+ * integrating with Java/AMQP libraries through ZIO.
+ *
+ * The RabbitMQ AMQP client is a standard Java client for RabbitMQ.
+ * See: https://www.rabbitmq.com/api-guide.html
  *
  * Tips:
- * - Implement an AmqpConnection to represent the RabbitMQ connection
- * - Create a MessagePublisher trait with publishing methods
- * - Build a ZLayer for AmqpConnection and MessagePublisher
- * - Handle message publishing to both queues and exchanges with routing keys
- * - Use dependency injection via ZLayer to provide the connection to services
- * - Support both direct queue publishing and exchange-based routing
+ * - Use com.rabbitmq.client.{Channel, Connection, ConnectionFactory}
+ * - Create a MessagePublisher trait with publishToQueue and publishToExchange methods
+ * - Implement ZLayer for Connection using ZLayer.scoped with proper resource cleanup
+ * - Implement ZLayer for Channel that depends on Connection
+ * - Use ZIO.attempt to wrap Java side-effects
+ * - Use ZIO.addFinalizer for proper resource cleanup (close connections and channels)
+ * - Use ZIO.service to access dependencies from the environment
+ * - Compose layers using ZLayer.provide in Main.run
  */
 package Exercise2 {
-  // TODO: Define AmqpConnection case class
+  // TODO: Import ConnectionFactory, Connection, Channel from com.rabbitmq.client
   // TODO: Define MessagePublisher trait with publishToQueue and publishToExchange methods
-  // TODO: Implement MessagePublisher.live ZLayer
-  // TODO: Create RabbitMQ.connectionLive ZLayer
+  // TODO: Implement MessagePublisher.live ZLayer using Channel dependency
+  // TODO: Create RabbitMQ.connectionLive ZLayer with proper finalization
+  // TODO: Create RabbitMQ.channelLive ZLayer that depends on Connection
   // TODO: Implement Main program that publishes messages to queues and exchanges
+  // TODO: Compose all layers in Main.run using .provide(...)
 
   object Main extends ZIOAppDefault {
     def run = ???
