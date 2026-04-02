@@ -4,8 +4,8 @@ import zio._
 
 /**
  * Create a ZIO program that uses Doobie to perform a database operation.
- * Implement a function that inserts a user into a database and returns
- * the number of affected rows. Use the following table structure:
+ * Implement a function that inserts a user into a database and returns the
+ * number of affected rows. Use the following table structure:
  *
  * ```sql
  * CREATE TABLE users (
@@ -151,7 +151,9 @@ package Exercise1 {
           Database.transactorLive,
           UserService.live
         )
-        .tapError(error => Console.printLineError(s"Error: ${error.getMessage}"))
+        .tapError(error =>
+          Console.printLineError(s"Error: ${error.getMessage}")
+        )
   }
 }
 
@@ -160,8 +162,8 @@ package Exercise1 {
  * server and publish arbitrary messages to a queue. This demonstrates
  * integrating with Java/AMQP libraries through ZIO.
  *
- * The RabbitMQ AMQP client is a standard Java client for RabbitMQ.
- * See: https://www.rabbitmq.com/api-guide.html
+ * The RabbitMQ AMQP client is a standard Java client for RabbitMQ. See:
+ * https://www.rabbitmq.com/api-guide.html
  */
 package Exercise2 {
   import com.rabbitmq.client.{Channel, Connection, ConnectionFactory}
@@ -216,7 +218,9 @@ package Exercise2 {
           factory.setPassword("guest")
           factory.newConnection()
         }.flatMap { connection =>
-          ZIO.addFinalizer(ZIO.attempt(connection.close()).ignoreLogged).as(connection)
+          ZIO
+            .addFinalizer(ZIO.attempt(connection.close()).ignoreLogged)
+            .as(connection)
         }
       }
 
@@ -224,7 +228,9 @@ package Exercise2 {
       ZLayer.scoped {
         ZIO.service[Connection].flatMap { connection =>
           ZIO.attempt(connection.createChannel()).flatMap { channel =>
-            ZIO.addFinalizer(ZIO.attempt(channel.close()).ignoreLogged).as(channel)
+            ZIO
+              .addFinalizer(ZIO.attempt(channel.close()).ignoreLogged)
+              .as(channel)
           }
         }
       }
@@ -247,14 +253,23 @@ package Exercise2 {
              "user.created",
              """{"userId": 1, "event": "user_created", "timestamp": "2026-04-01T00:00:00Z"}"""
            )
-      _ <- Console.printLine("✓ Published message to user-events exchange with routing key user.created")
+      _ <-
+        Console.printLine(
+          "✓ Published message to user-events exchange with routing key user.created"
+        )
 
       // Publish multiple messages
       messages = List(
-        ("orders-queue", """{"orderId": 101, "status": "pending"}"""),
-        ("orders-queue", """{"orderId": 102, "status": "completed"}"""),
-        ("orders-queue", """{"orderId": 103, "status": "shipped"}""")
-      )
+                   (
+                     "orders-queue",
+                     """{"orderId": 101, "status": "pending"}"""
+                   ),
+                   (
+                     "orders-queue",
+                     """{"orderId": 102, "status": "completed"}"""
+                   ),
+                   ("orders-queue", """{"orderId": 103, "status": "shipped"}""")
+                 )
       _ <- ZIO.foreachDiscard(messages) { case (queue, msg) =>
              publisher.publishToQueue(queue, msg) *>
                Console.printLine(s"✓ Published to $queue")
