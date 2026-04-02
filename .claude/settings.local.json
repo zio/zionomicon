@@ -4,7 +4,29 @@
       "Bash(sbtn --client \"++2.13; compile\")",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(sbtn --client \"scalafmtAll\")"
+      "Bash(sbtn --client \"scalafmtAll\")",
+      "Bash(sbtn \"++2.13; compile\")",
+      "Bash(sbtn \"++2.13; scalafmtAll\")",
+      "Bash(gh:*)",
+      "Bash(jar xf:*)",
+      "Bash(jar:*)",
+      "Bash(sbt*)",
+      "Bash(find /home/milad/.ivy2/cache/dev.zio -name zio-http*.jar)",
+      "Bash(JAR=\"/home/milad/sources/scala/zionomicon-solutions-new/target/bg-jobs/sbt_5b5711a9/target/12c92430/2a7687df/zio-http_2.13-3.7.1.jar\")",
+      "Bash(grep -v '\\\\$')",
+      "Bash(JAR=/home/milad/sources/scala/zionomicon-solutions-new/target/bg-jobs/sbt_31c6a449/target/12c92430/2a7687df/zio-http_2.13-3.7.1.jar cd /tmp)",
+      "Bash(/dev/null javap:*)",
+      "Bash(jobs)",
+      "Bash(wait)",
+      "Bash(pkill -9 -f \"sbtn\\\\|sbt\")",
+      "Bash(pkill -9 -f \"java.*zio\\\\|sbtn\\\\|sbt\")",
+      "Bash(timeout 180 java -cp /home/milad/sources/scala/zionomicon-solutions-new/target/scala-2.13/classes:/home/milad/.cache/coursier/v1/https/repo1.maven.org/maven2/dev/zio/zio-test_2.13/2.1.21/zio-test_2.13-2.1.21.jar zionomicon.solutions.CommunicationProtocolsZIOHTTP.StaticFileServer.Solution.StaticFileServerSpec)",
+      "WebSearch",
+      "WebFetch(domain:zio.dev)",
+      "WebFetch(domain:timpigden.github.io)",
+      "WebFetch(domain:ziohttp.com)",
+      "WebFetch(domain:scala.monster)",
+      "WebFetch(domain:medium.com)"
     ]
   }
 }
