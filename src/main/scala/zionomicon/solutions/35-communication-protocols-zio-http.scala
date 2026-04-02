@@ -499,7 +499,6 @@ package CommunicationProtocolsZIOHTTP {
 
     import zio._
     import zio.http._
-    import zio.test._
     import java.io.File
     import java.nio.file.{Files => JFiles}
 
@@ -570,43 +569,119 @@ package CommunicationProtocolsZIOHTTP {
       }
 
       /**
-       * ZIO Test Suite for static file server routes.
+       * Integration tests for the static file server using ZIO HTTP Client API.
        *
-       * Tests the path validation logic using ZIO Test best practices.
-       * Demonstrates proper use of ZIOSpecDefault with assertTrue assertions.
+       * NOTE: We use ZIOAppDefault instead of ZIOSpecDefault for integration tests
+       * because ZIO Test's test clock framework is incompatible with real I/O operations
+       * (HTTP servers, network requests). Integration tests need wall-clock time semantics.
        *
        * Run with: sbtn "runMain
-       * zionomicon.solutions.CommunicationProtocolsZIOHTTP.StaticFileServer.Solution.StaticFileServerSpec"
+       * zionomicon.solutions.CommunicationProtocolsZIOHTTP.StaticFileServer.Solution.StaticFileServerTest"
        */
-      object StaticFileServerSpec extends zio.test.ZIOSpecDefault {
+      object StaticFileServerTest extends ZIOAppDefault {
 
-        override def spec = suite("Static File Server Routes")(
-          test("canonical path preserves parent directory") {
-            val baseDir = new File("/tmp/base")
-            val subFile = new File(baseDir, "file.txt").getCanonicalFile
-            assertTrue(subFile.getPath.startsWith(baseDir.getCanonicalFile.getPath))
-          },
-          test("directory traversal is detected") {
-            val baseDir = new File("/tmp/base").getCanonicalFile
-            val traversal = new File(baseDir, "../etc/passwd").getCanonicalFile
-            assertTrue(!traversal.getPath.startsWith(baseDir.getPath))
-          },
-          test("absolute path traversal is blocked") {
-            val baseDir = new File("/tmp/base").getCanonicalFile
-            val etc = new File(baseDir, "../../etc/passwd").getCanonicalFile
-            assertTrue(!etc.getPath.startsWith(baseDir.getPath))
-          },
-          test("subdirectory paths are valid") {
-            val baseDir = new File("/tmp/base").getCanonicalFile
-            val subFile = new File(baseDir, "subdir/file.txt").getCanonicalFile
-            assertTrue(subFile.getPath.startsWith(baseDir.getPath))
-          },
-          test("deep nesting is allowed") {
-            val baseDir = new File("/tmp/base").getCanonicalFile
-            val deepFile = new File(baseDir, "a/b/c/d/file.txt").getCanonicalFile
-            assertTrue(deepFile.getPath.startsWith(baseDir.getPath))
-          }
-        )
+        def run: ZIO[Any, Any, Unit] =
+          (for {
+            // Create a temporary directory with test files
+            tempDir <- ZIO.attemptBlocking(
+                        JFiles.createTempDirectory("zio-http-static-test")
+                      )
+            _ <- ZIO.debug(s"Created temp directory: $tempDir")
+
+            // Create test files
+            helloFile = new File(tempDir.toFile, "hello.txt")
+            _ <- ZIO.attemptBlocking(
+                   JFiles.write(helloFile.toPath, "Hello, World!".getBytes)
+                 )
+            dataDir = new File(tempDir.toFile, "subdir")
+            _ <- ZIO.attemptBlocking(dataDir.mkdirs())
+            dataFile = new File(dataDir, "data.json")
+            _ <- ZIO.attemptBlocking(
+                   JFiles.write(dataFile.toPath, """{"key":"value"}""".getBytes)
+                 )
+
+            // Allocate a free port
+            port <- ZIO.attemptBlocking {
+                      val socket = new java.net.ServerSocket(0)
+                      val p      = socket.getLocalPort
+                      socket.close()
+                      p
+                    }
+            _ <- ZIO.debug(s"Allocated port: $port")
+
+            // Start the server
+            _ <- Server
+                   .serve(StaticFileServerRoutes.staticFileServer(tempDir.toString))
+                   .provide(
+                     ZLayer.succeed(Server.Config.default.port(port)) >>> Server.live
+                   )
+                   .fork
+            _ <- ZIO.sleep(1.second)
+
+            // TEST 1: Serve a file in the root
+            _ <- ZIO.debug("\n=== TEST 1: GET /hello.txt ===")
+            url1 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/hello.txt"))
+            req1   = Request.get(url1)
+            res1  <- Client.batched(req1)
+            body1 <- res1.body.asString
+            _     <- ZIO.debug(s"Response: ${res1.status}, Body: $body1")
+            _ <- if (res1.status == Status.Ok && body1 == "Hello, World!") {
+                   ZIO.debug("✅ TEST 1 passed")
+                 } else {
+                   ZIO.fail(s"TEST 1 failed: expected 200 + 'Hello, World!', got ${res1.status} + '$body1'")
+                 }
+
+            // TEST 2: Serve a file in a subdirectory
+            _ <- ZIO.debug("\n=== TEST 2: GET /subdir/data.json ===")
+            url2 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/subdir/data.json"))
+            req2   = Request.get(url2)
+            res2  <- Client.batched(req2)
+            body2 <- res2.body.asString
+            _     <- ZIO.debug(s"Response: ${res2.status}, Body: $body2")
+            _ <- if (res2.status == Status.Ok && body2 == """{"key":"value"}""") {
+                   ZIO.debug("✅ TEST 2 passed")
+                 } else {
+                   ZIO.fail(s"TEST 2 failed: expected 200 + json, got ${res2.status} + '$body2'")
+                 }
+
+            // TEST 3: Request non-existent file
+            _ <- ZIO.debug("\n=== TEST 3: GET /nonexistent.txt (should be 404) ===")
+            url3 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/nonexistent.txt"))
+            req3  = Request.get(url3)
+            res3 <- Client.batched(req3)
+            _    <- ZIO.debug(s"Response: ${res3.status}")
+            _ <- if (res3.status == Status.NotFound) {
+                   ZIO.debug("✅ TEST 3 passed")
+                 } else {
+                   ZIO.fail(s"TEST 3 failed: expected 404, got ${res3.status}")
+                 }
+
+            // TEST 4: Directory traversal attack prevention
+            _ <- ZIO.debug("\n=== TEST 4: Path traversal protection (/../) ===")
+            url4 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/../etc/passwd"))
+            req4  = Request.get(url4)
+            res4 <- Client.batched(req4)
+            _    <- ZIO.debug(s"Response: ${res4.status}")
+            _ <- if (res4.status == Status.NotFound) {
+                   ZIO.debug("✅ TEST 4 passed - traversal attempt blocked")
+                 } else {
+                   ZIO.fail(s"TEST 4 failed: expected 404 for traversal, got ${res4.status}")
+                 }
+
+            // TEST 5: Directory request (should be 404, not directory listing)
+            _ <- ZIO.debug("\n=== TEST 5: GET /subdir/ (directory, should be 404) ===")
+            url5 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/subdir/"))
+            req5  = Request.get(url5)
+            res5 <- Client.batched(req5)
+            _    <- ZIO.debug(s"Response: ${res5.status}")
+            _ <- if (res5.status == Status.NotFound) {
+                   ZIO.debug("✅ TEST 5 passed - directory returns 404")
+                 } else {
+                   ZIO.fail(s"TEST 5 failed: expected 404 for directory, got ${res5.status}")
+                 }
+
+            _ <- ZIO.debug("\n✅ All tests completed successfully!")
+          } yield ()).provide(Client.default)
       }
     }
   }
