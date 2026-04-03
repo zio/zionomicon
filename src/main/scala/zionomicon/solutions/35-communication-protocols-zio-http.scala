@@ -837,6 +837,27 @@ package CommunicationProtocolsZIOHTTP {
         }
       }
 
+      /**
+       * Example application demonstrating the file upload endpoint in action.
+       * Uploads are saved to /tmp/uploads on port 8080.
+       *
+       * Example usage:
+       * curl -F "filename=myfile.txt" -F "file=@myfile.txt" http://localhost:8080/upload
+       *
+       * NOTE: Server.Config.default.enableRequestStreaming must be set to allow
+       * large files to be streamed without buffering the entire request body.
+       */
+      object ExampleApp extends ZIOAppDefault {
+
+        def run: ZIO[Any, Any, Unit] =
+          ZIO.debug("Starting file upload server on http://localhost:8080/upload") *>
+            Server
+              .serve(FileUploadRoutes.uploadEndpoint("/tmp/uploads"))
+              .provide(
+                ZLayer.succeed(Server.Config.default.enableRequestStreaming) >>> Server.live
+              )
+      }
+
     }
 
   }
