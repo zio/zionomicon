@@ -725,7 +725,7 @@ package CommunicationProtocolsZIOHTTP {
 
     import zio._
     import zio.http._
-    import zio.stream.ZSink
+    import zio.stream.{ZSink, ZStream}
     import java.io.File
     import java.nio.file.{Files => JFiles}
 
@@ -761,6 +761,82 @@ package CommunicationProtocolsZIOHTTP {
             Left(UploadError.InvalidFileName(s"Filename cannot contain null bytes: $name"))
           else
             Right(name)
+
+        /**
+         * Creates a POST /upload endpoint that accepts multipart form data.
+         *
+         * Expected form fields:
+         * - filename: String (the name to save the file as)
+         * - file: Binary data (the file content)
+         *
+         * Returns:
+         * - 201 Created on success
+         * - 400 Bad Request if filename is invalid
+         * - 500 Internal Server Error if file save fails
+         *
+         * DESIGN: Request streaming must be enabled via
+         * Server.Config.default.enableRequestStreaming on the server.
+         * This allows streaming large files without buffering in memory.
+         */
+        def uploadEndpoint(uploadDir: String): zio.http.Routes[Any, Response] = {
+          val uploadDirFile = new File(uploadDir).getCanonicalFile
+
+          Routes(
+            Method.POST / "upload" -> handler { (req: Request) =>
+              req.body.asMultipartForm.mapBoth(
+                e => Response.internalServerError(e.getMessage),
+                form => {
+                  val filename = form.get("filename").collect {
+                    case FormField.Text(_, value, _, _) => value
+                  }
+                  val fileField = form.get("file")
+
+                  (filename, fileField) match {
+                    case (None, _) =>
+                      ZIO.succeed(
+                        Response.badRequest("Missing or invalid 'filename' field")
+                      )
+                    case (_, None) =>
+                      ZIO.succeed(Response.badRequest("Missing 'file' field"))
+                    case (Some(fname), Some(field)) =>
+                      val validated = validateFilename(fname)
+                      validated match {
+                        case Left(UploadError.InvalidFileName(msg)) =>
+                          ZIO.succeed(Response.badRequest(msg))
+                        case Left(UploadError.SaveError(msg)) =>
+                          ZIO.succeed(Response.internalServerError(msg))
+                        case Right(validName) =>
+                          val targetPath =
+                            new File(uploadDirFile, validName).getCanonicalFile.toPath
+                          if (!targetPath.toFile.getPath.startsWith(
+                                uploadDirFile.getPath
+                              )) {
+                            ZIO.succeed(Response.badRequest("Invalid file path"))
+                          } else {
+                            (field match {
+                              case FormField.Binary(_, data, _, _, _) =>
+                                ZStream.fromChunk(data).run(ZSink.fromPath(targetPath))
+                              case FormField.StreamingBinary(_, _, _, _, data) =>
+                                data.run(ZSink.fromPath(targetPath))
+                              case _ =>
+                                ZIO.fail(
+                                  new Exception("Invalid file field type")
+                                )
+                            }).mapBoth(
+                              e =>
+                                Response.internalServerError(
+                                  s"Save error: ${e.getMessage}"
+                                ),
+                              _ => Response.status(Status.Created)
+                            )
+                          }
+                      }
+                  }
+                }
+              ).flatMap(x => x)
+            }
+          )
+        }
       }
 
     }
