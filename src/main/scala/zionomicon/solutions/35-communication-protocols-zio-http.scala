@@ -800,11 +800,9 @@ package CommunicationProtocolsZIOHTTP {
                       ZIO.succeed(Response.badRequest("Missing 'file' field"))
                     case (Some(fname), Some(field)) =>
                       val validated = validateFilename(fname)
-                      validated match {
+                      (validated: @unchecked) match {
                         case Left(UploadError.InvalidFileName(msg)) =>
                           ZIO.succeed(Response.badRequest(msg))
-                        case Left(UploadError.SaveError(msg)) =>
-                          ZIO.succeed(Response.internalServerError(msg))
                         case Right(validName) =>
                           val targetPath =
                             new File(uploadDirFile, validName).getCanonicalFile.toPath
