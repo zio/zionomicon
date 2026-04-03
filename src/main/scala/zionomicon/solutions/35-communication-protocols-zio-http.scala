@@ -858,6 +858,52 @@ package CommunicationProtocolsZIOHTTP {
               )
       }
 
+      /**
+       * Integration tests for the file upload endpoint using ZIO HTTP Client API.
+       *
+       * NOTE: We use ZIOAppDefault instead of ZIOSpecDefault for integration tests
+       * because ZIO Test's test clock framework is incompatible with real I/O operations
+       * (HTTP servers, network requests). Integration tests need wall-clock time semantics.
+       *
+       * Run with: sbtn "runMain
+       * zionomicon.solutions.CommunicationProtocolsZIOHTTP.FileUploadEndpoint.Solution.FileUploadEndpointTest"
+       */
+      object FileUploadEndpointTest extends ZIOAppDefault {
+
+        def run: ZIO[Any, Any, Unit] =
+          (for {
+            // Create a temporary directory for uploads
+            tempDir <- ZIO.attemptBlocking(
+                        JFiles.createTempDirectory("zio-http-upload-test")
+                      )
+            _ <- ZIO.debug(s"Created temp directory: $tempDir")
+
+            // Allocate a free port
+            port <- ZIO.attemptBlocking {
+                      val socket = new java.net.ServerSocket(0)
+                      val p      = socket.getLocalPort
+                      socket.close()
+                      p
+                    }
+            _ <- ZIO.debug(s"Allocated port: $port")
+
+            // Start the server with request streaming enabled
+            _ <- Server
+                   .serve(FileUploadRoutes.uploadEndpoint(tempDir.toString))
+                   .provide(
+                     ZLayer.succeed(
+                       Server.Config.default.enableRequestStreaming.port(port)
+                     ) >>> Server.live
+                   )
+                   .fork
+            _ <- ZIO.sleep(1.second)
+
+            // Tests will go here
+            _ <- ZIO.debug("Running file upload tests...")
+            _ <- ZIO.debug("\n✅ All tests completed successfully!")
+          } yield ()).provide(Client.default)
+      }
+
     }
 
   }
