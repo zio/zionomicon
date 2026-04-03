@@ -737,6 +737,32 @@ package CommunicationProtocolsZIOHTTP {
         case class SaveError(msg: String)       extends UploadError
       }
 
+      object FileUploadRoutes {
+
+        /**
+         * Validates a filename to prevent directory traversal and invalid paths.
+         *
+         * Rules:
+         * - Non-empty
+         * - No path separators (/ or \)
+         * - Not "." or ".."
+         * - No null bytes
+         *
+         * Returns Either[UploadError, String] where Right contains the validated filename.
+         */
+        private def validateFilename(name: String): Either[UploadError, String] =
+          if (name.isEmpty)
+            Left(UploadError.InvalidFileName("Filename cannot be empty"))
+          else if (name == "." || name == "..")
+            Left(UploadError.InvalidFileName(s"Invalid filename: $name"))
+          else if (name.contains('/') || name.contains('\\'))
+            Left(UploadError.InvalidFileName(s"Filename cannot contain path separators: $name"))
+          else if (name.contains('\u0000'))
+            Left(UploadError.InvalidFileName(s"Filename cannot contain null bytes: $name"))
+          else
+            Right(name)
+      }
+
     }
 
   }
