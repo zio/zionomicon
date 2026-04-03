@@ -723,6 +723,22 @@ package CommunicationProtocolsZIOHTTP {
    */
   package FileUploadEndpoint {
 
+    import zio._
+    import zio.http._
+    import zio.stream.ZSink
+    import java.io.File
+    import java.nio.file.{Files => JFiles}
+
+    package Solution {
+
+      sealed trait UploadError
+      object UploadError {
+        case class InvalidFileName(msg: String) extends UploadError
+        case class SaveError(msg: String)       extends UploadError
+      }
+
+    }
+
   }
 
   /**
