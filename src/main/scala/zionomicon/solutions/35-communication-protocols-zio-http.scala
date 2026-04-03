@@ -708,8 +708,201 @@ package CommunicationProtocolsZIOHTTP {
    */
   package FileUploadEndpoint {
 
-    object Solution {}
+    import zio._
+    import zio.http._
+    import zio.stream.ZSink
+    import java.io.File
+    import java.nio.file.{Files => JFiles}
 
+    package Solution {
+
+      sealed trait UploadError
+      object UploadError {
+        case class InvalidFileName(msg: String) extends UploadError
+        case class SaveError(msg: String)       extends UploadError
+      }
+
+      object FileUploadRoutes {
+
+        /**
+         * Validates a filename to prevent directory traversal and invalid paths.
+         *
+         * Rules:
+         * - Non-empty
+         * - No path separators (/ or \)
+         * - Not "." or ".."
+         * - No null bytes
+         */
+        private def validateFilename(name: String): Either[UploadError, String] =
+          if (name.isEmpty || name == "." || name == ".." || name.contains('/') || name.contains('\\') || name.contains('\u0000'))
+            Left(UploadError.InvalidFileName(s"Invalid filename: $name"))
+          else Right(name)
+
+        /**
+         * Creates a POST /upload endpoint that accepts files in the request body
+         * and saves them to uploadDir.
+         *
+         * The filename is extracted from the ?filename=<name> query parameter.
+         * Uses streaming (body.asStream + ZSink.fromPath) to handle large files
+         * without loading them into memory.
+         *
+         * Returns:
+         * - 201 Created on success
+         * - 400 Bad Request if filename is invalid
+         * - 500 Internal Server Error if file save fails
+         *
+         * DESIGN: Request streaming must be enabled via
+         * Server.Config.default.enableRequestStreaming on the server.
+         */
+        def uploadEndpoint(uploadDir: String): zio.http.Routes[Any, Response] = {
+          val uploadDirFile = new File(uploadDir).getCanonicalFile
+
+          Routes(
+            Method.POST / "upload" -> handler { (req: Request) =>
+              val filenameParam = req.queryParam("filename").getOrElse("")
+              validateFilename(filenameParam) match {
+                case Left(UploadError.InvalidFileName(msg)) =>
+                  ZIO.succeed(Response.badRequest(msg))
+                case Left(err) =>
+                  ZIO.succeed(Response.internalServerError(err.toString))
+                case Right(filename) =>
+                  val targetPath = new File(uploadDirFile, filename).getCanonicalFile.toPath
+                  req.body.asStream
+                    .run(ZSink.fromPath(targetPath))
+                    .mapBoth(
+                      e => Response.internalServerError(s"Save error: ${e.getMessage}"),
+                      _ => Response.status(Status.Created)
+                    )
+                    .merge
+              }
+            }
+          )
+        }
+      }
+
+      /**
+       * Example application demonstrating the file upload endpoint in action.
+       * Uploads are saved to /tmp/uploads on port 8080.
+       *
+       * Example usage:
+       * curl -X POST --data-binary @myfile.txt "http://localhost:8080/upload?filename=myfile.txt"
+       */
+      object ExampleApp extends ZIOAppDefault {
+
+        def run: ZIO[Any, Any, Unit] =
+          Server
+            .serve(FileUploadRoutes.uploadEndpoint("/tmp/uploads"))
+            .provide(
+              ZLayer.succeed(Server.Config.default.enableRequestStreaming) >>> Server.live
+            )
+      }
+
+      /**
+       * Integration tests for the file upload endpoint using ZIO HTTP Client API.
+       *
+       * NOTE: We use ZIOAppDefault instead of ZIOSpecDefault for integration tests
+       * because ZIO Test's test clock framework is incompatible with real I/O operations
+       * (HTTP servers, network requests). Integration tests need wall-clock time semantics.
+       *
+       * Run with: sbtn "runMain
+       * zionomicon.solutions.CommunicationProtocolsZIOHTTP.FileUploadEndpoint.Solution.FileUploadEndpointTest"
+       */
+      object FileUploadEndpointTest extends ZIOAppDefault {
+
+        def run: ZIO[Any, Any, Unit] =
+          (for {
+            // Create a temporary directory for uploads
+            tempDir <- ZIO.attemptBlocking(
+                        JFiles.createTempDirectory("zio-http-upload-test")
+                      )
+            _ <- ZIO.debug(s"Created temp directory: $tempDir")
+
+            // Allocate a free port
+            port <- ZIO.attemptBlocking {
+                      val socket = new java.net.ServerSocket(0)
+                      val p      = socket.getLocalPort
+                      socket.close()
+                      p
+                    }
+            _ <- ZIO.debug(s"Allocated port: $port")
+
+            // Start the server with request streaming enabled
+            _ <- Server
+                   .serve(FileUploadRoutes.uploadEndpoint(tempDir.toString))
+                   .provide(
+                     ZLayer.succeed(
+                       Server.Config.default.enableRequestStreaming.port(port)
+                     ) >>> Server.live
+                   )
+                   .fork
+            _ <- ZIO.sleep(1.second)
+
+            // TEST 1: Upload a valid file
+            _ <- ZIO.debug("\n=== TEST 1: POST /upload?filename=hello.txt ===")
+            testContent1 = "Hello, World!"
+            url1 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload?filename=hello.txt"))
+            req1  = Request.post(url1, Body.fromString(testContent1))
+            res1 <- Client.batched(req1)
+            _    <- ZIO.debug(s"Response: ${res1.status}")
+            _ <- if (res1.status == Status.Created) {
+                   ZIO.debug("✅ TEST 1 passed")
+                 } else {
+                   ZIO.fail(s"TEST 1 failed: expected 201 Created, got ${res1.status}")
+                 }
+
+            // TEST 2: Verify uploaded file content
+            _ <- ZIO.debug("\n=== TEST 2: Verify uploaded file content ===")
+            uploadedFile = new File(tempDir.toFile, "hello.txt")
+            uploadedContent <- ZIO.attemptBlocking {
+                                 new String(JFiles.readAllBytes(uploadedFile.toPath))
+                               }
+            _ <- ZIO.debug(s"Uploaded content: $uploadedContent")
+            _ <- if (uploadedContent == testContent1) {
+                   ZIO.debug("✅ TEST 2 passed")
+                 } else {
+                   ZIO.fail(s"TEST 2 failed: expected '$testContent1', got '$uploadedContent'")
+                 }
+
+            // TEST 3: Empty filename (should be 400)
+            _ <- ZIO.debug("\n=== TEST 3: POST /upload?filename= (empty, should be 400) ===")
+            url3 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload?filename="))
+            req3  = Request.post(url3, Body.fromString("content"))
+            res3 <- Client.batched(req3)
+            _    <- ZIO.debug(s"Response: ${res3.status}")
+            _ <- if (res3.status == Status.BadRequest) {
+                   ZIO.debug("✅ TEST 3 passed")
+                 } else {
+                   ZIO.fail(s"TEST 3 failed: expected 400 Bad Request, got ${res3.status}")
+                 }
+
+            // TEST 4: Path traversal attempt (should be 400)
+            _ <- ZIO.debug("\n=== TEST 4: Path traversal protection (/../etc/passwd) ===")
+            url4 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload?filename=../etc/passwd"))
+            req4  = Request.post(url4, Body.fromString("content"))
+            res4 <- Client.batched(req4)
+            _    <- ZIO.debug(s"Response: ${res4.status}")
+            _ <- if (res4.status == Status.BadRequest) {
+                   ZIO.debug("✅ TEST 4 passed - traversal attempt blocked")
+                 } else {
+                   ZIO.fail(s"TEST 4 failed: expected 400 for traversal, got ${res4.status}")
+                 }
+
+            // TEST 5: Absolute path attempt (should be 400)
+            _ <- ZIO.debug("\n=== TEST 5: Absolute path rejection (/etc/passwd) ===")
+            url5 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload?filename=/etc/passwd"))
+            req5  = Request.post(url5, Body.fromString("content"))
+            res5 <- Client.batched(req5)
+            _    <- ZIO.debug(s"Response: ${res5.status}")
+            _ <- if (res5.status == Status.BadRequest) {
+                   ZIO.debug("✅ TEST 5 passed - absolute path rejected")
+                 } else {
+                   ZIO.fail(s"TEST 5 failed: expected 400 for absolute path, got ${res5.status}")
+                 }
+
+            _ <- ZIO.debug("\n✅ All tests completed successfully!")
+          } yield ()).provide(Client.default)
+      }
+    }
   }
 
   /**
