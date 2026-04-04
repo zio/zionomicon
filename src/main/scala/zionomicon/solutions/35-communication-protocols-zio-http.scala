@@ -1004,6 +1004,43 @@ package CommunicationProtocolsZIOHTTP {
                    )
                  }
 
+            // TEST 5: Large file upload (5 MB) to verify streaming works
+            _ <- ZIO.debug("\n=== TEST 5: POST /upload with large file (5 MB) ===")
+            largeContent = Array.fill[Byte](5 * 1024 * 1024)(65.toByte) // 5 MB of 'A'
+            url5 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            form5 = Form(
+                      FormField.Text("filename", "largefile.bin", MediaType.text.`plain`),
+                      FormField.Binary(
+                        "file",
+                        Chunk.fromArray(largeContent),
+                        MediaType.application.`octet-stream`
+                      )
+                    )
+            boundary5 = Boundary("----WebKitFormBoundary7MA4YWxkTrZu0gW")
+            body5 = Body.fromMultipartForm(form5, boundary5)
+            req5  = Request.post(url5, body5)
+            res5 <- Client.batched(req5)
+            _    <- ZIO.debug(s"Response: ${res5.status}")
+            _ <- if (res5.status == Status.Created) {
+                   ZIO.debug("✅ TEST 5 passed - large file uploaded successfully")
+                 } else {
+                   ZIO.fail(s"TEST 5 failed: expected 201 Created, got ${res5.status}")
+                 }
+
+            // Verify large file size
+            largeFile = new File(tempDir.toFile, "largefile.bin")
+            fileSize <- ZIO.attemptBlocking {
+                          JFiles.size(largeFile.toPath)
+                        }
+            _ <- ZIO.debug(s"Uploaded file size: ${fileSize / (1024 * 1024)} MB")
+            _ <- if (fileSize == largeContent.length) {
+                   ZIO.debug("✅ Large file size matches - streaming works correctly")
+                 } else {
+                   ZIO.fail(
+                     s"File size mismatch: expected ${largeContent.length}, got $fileSize"
+                   )
+                 }
+
             _ <- ZIO.debug("\n✅ All tests completed successfully!")
           } yield ()).provide(Client.default)
       }
