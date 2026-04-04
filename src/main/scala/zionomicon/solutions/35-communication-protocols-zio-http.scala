@@ -1412,25 +1412,50 @@ package CommunicationProtocolsZIOHTTP {
                    )
                  }
 
-            // TEST 3: Wait for window to expire, then verify counter resets
+            // TEST 3: Wait for window to expire, then verify counter resets completely
             _ <- ZIO.debug(
-                   "\n=== TEST 3: Wait 5 seconds for window expiration ==="
+                   "\n=== TEST 3: Wait 5.5 seconds for window expiration ==="
                  )
             _ <- ZIO.sleep(5500.millis)
-            _ <- ZIO.debug("Window expired, counter should reset")
+            _ <- ZIO.debug("Window expired, counter should reset to 0")
 
-            // Next request should be allowed (counter reset)
-            res3 <- Client.batched(Request.get(url1))
-            _    <- ZIO.debug(s"Request after reset: ${res3.status}")
-            _ <- if (res3.status == Status.Ok) {
-                   ZIO.debug(
-                     "✅ TEST 3 passed - counter reset after window expiration"
-                   )
+            // Now send 3 more requests - all should be allowed (new window)
+            _ <- ZIO.debug(
+                   "\n=== TEST 3b: Send 3 more requests in new window (all should be 200 OK) ==="
+                 )
+            _ <- ZIO.foreachDiscard((1 to 3)) { i =>
+                   for {
+                     res <- Client.batched(Request.get(url1))
+                     _   <- ZIO.debug(s"Request (new window) $i: ${res.status}")
+                     _ <- if (res.status == Status.Ok) {
+                            ZIO.succeed(())
+                          } else {
+                            ZIO.fail(
+                              s"TEST 3b failed on request $i: expected 200 Ok in new window, got ${res.status}"
+                            )
+                          }
+                   } yield ()
+                 }
+            _ <-
+              ZIO.debug("✅ TEST 3b passed - new window allows 3 requests again")
+
+            // Now verify 4th request still hits the limit
+            _ <-
+              ZIO.debug(
+                "\n=== TEST 3c: 4th request in new window should be blocked ==="
+              )
+            res4 <- Client.batched(Request.get(url1))
+            _    <- ZIO.debug(s"Request (new window) 4: ${res4.status}")
+            _ <- if (res4.status == Status.TooManyRequests) {
+                   ZIO.debug("✅ TEST 3c passed - limit enforced in new window")
                  } else {
                    ZIO.fail(
-                     s"TEST 3 failed: expected 200 after reset, got ${res3.status}"
+                     s"TEST 3c failed: expected 429 in new window, got ${res4.status}"
                    )
                  }
+            _ <- ZIO.debug(
+                   "✅ TEST 3 passed - window completely reset after expiration"
+                 )
 
             _ <- ZIO.debug("\n✅ All tests completed successfully!")
           } yield ()).provide(Client.default)
