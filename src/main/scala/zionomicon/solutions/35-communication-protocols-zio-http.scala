@@ -984,6 +984,26 @@ package CommunicationProtocolsZIOHTTP {
                    )
                  }
 
+            // TEST 4: Missing 'file' field should return 400
+            _ <- ZIO.debug("\n=== TEST 4: POST /upload with missing 'file' field ===")
+            url4 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            form4 = Form(
+                      FormField.Text("filename", "test.txt", MediaType.text.`plain`)
+                      // Missing file field
+                    )
+            boundary4 = Boundary("----WebKitFormBoundary7MA4YWxkTrZu0gW")
+            body4 = Body.fromMultipartForm(form4, boundary4)
+            req4  = Request.post(url4, body4)
+            res4 <- Client.batched(req4)
+            _    <- ZIO.debug(s"Response: ${res4.status}")
+            _ <- if (res4.status == Status.BadRequest) {
+                   ZIO.debug("✅ TEST 4 passed - missing file field rejected")
+                 } else {
+                   ZIO.fail(
+                     s"TEST 4 failed: expected 400 Bad Request for missing file, got ${res4.status}"
+                   )
+                 }
+
             _ <- ZIO.debug("\n✅ All tests completed successfully!")
           } yield ()).provide(Client.default)
       }
