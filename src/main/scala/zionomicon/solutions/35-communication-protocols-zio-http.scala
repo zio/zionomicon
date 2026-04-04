@@ -1150,8 +1150,10 @@ package CommunicationProtocolsZIOHTTP {
       /**
        * Configuration for rate limiting middleware.
        *
-       * @param maxRequests Maximum number of requests allowed within timeWindow
-       * @param timeWindow Duration of the rate limit window (ZIO Duration in milliseconds)
+       * @param maxRequests
+       *   Maximum number of requests allowed within timeWindow
+       * @param timeWindow
+       *   Duration of the rate limit window (ZIO Duration in milliseconds)
        */
       case class RateLimitConfig(
         maxRequests: Int,
@@ -1161,8 +1163,10 @@ package CommunicationProtocolsZIOHTTP {
       /**
        * Internal state for tracking a single IP address.
        *
-       * @param requestCount Number of requests in current window
-       * @param windowStartTime When the current window started
+       * @param requestCount
+       *   Number of requests in current window
+       * @param windowStartTime
+       *   When the current window started
        */
       case class RateLimitState(
         requestCount: Int,
@@ -1175,9 +1179,9 @@ package CommunicationProtocolsZIOHTTP {
          * Extracts the client IP address from a request.
          *
          * Priority:
-         * 1. X-Forwarded-For header (first IP if comma-separated)
-         * 2. Request.remoteAddress (socket address)
-         * 3. "unknown" (fallback)
+         *   1. X-Forwarded-For header (first IP if comma-separated)
+         *   2. Request.remoteAddress (socket address)
+         *   3. "unknown" (fallback)
          */
         private def extractClientIp(req: Request): String =
           req.headers
@@ -1189,8 +1193,8 @@ package CommunicationProtocolsZIOHTTP {
         /**
          * Removes expired entries from the rate limit map.
          *
-         * Called periodically to prevent unbounded memory growth.
-         * Removes entries where windowStartTime + timeWindow < now.
+         * Called periodically to prevent unbounded memory growth. Removes
+         * entries where windowStartTime + timeWindow < now.
          */
         private def cleanupExpiredEntries(
           stateRef: Ref[Map[String, RateLimitState]],
@@ -1199,24 +1203,28 @@ package CommunicationProtocolsZIOHTTP {
           for {
             now <- Clock.instant
             _ <- stateRef.update { state =>
-              state.filter { case (_, limitState) =>
-                val windowEnd = limitState.windowStartTime
-                  .plus(java.time.Duration.ofMillis(config.timeWindow.toMillis))
-                now.isBefore(windowEnd)
-              }
-            }
+                   state.filter { case (_, limitState) =>
+                     val windowEnd = limitState.windowStartTime
+                       .plus(
+                         java.time.Duration.ofMillis(config.timeWindow.toMillis)
+                       )
+                     now.isBefore(windowEnd)
+                   }
+                 }
           } yield ()
 
         /**
-         * Checks if a request from the given IP should be allowed under the rate limit.
+         * Checks if a request from the given IP should be allowed under the
+         * rate limit.
          *
-         * Returns Some(remainingRequests) if allowed, None if rate limit exceeded.
+         * Returns Some(remainingRequests) if allowed, None if rate limit
+         * exceeded.
          *
          * Logic:
-         * - If no entry for IP: create entry with count=1, allow
-         * - If window expired: reset count to 1, allow
-         * - If count < maxRequests: increment, allow
-         * - If count >= maxRequests: deny
+         *   - If no entry for IP: create entry with count=1, allow
+         *   - If window expired: reset count to 1, allow
+         *   - If count < maxRequests: increment, allow
+         *   - If count >= maxRequests: deny
          */
         private def checkRateLimit(
           stateRef: Ref[Map[String, RateLimitState]],
@@ -1226,34 +1234,42 @@ package CommunicationProtocolsZIOHTTP {
           for {
             now <- Clock.instant
             result <- stateRef.modify { state =>
-              state.get(clientIp) match {
-                case None =>
-                  // New IP: create entry with count 1
-                  val newState = state + (clientIp -> RateLimitState(1, now))
-                  (Some(config.maxRequests - 1), newState)
+                        state.get(clientIp) match {
+                          case None =>
+                            // New IP: create entry with count 1
+                            val newState =
+                              state + (clientIp -> RateLimitState(1, now))
+                            (Some(config.maxRequests - 1), newState)
 
-                case Some(limitState) =>
-                  val windowEnd = limitState.windowStartTime
-                    .plus(java.time.Duration.ofMillis(config.timeWindow.toMillis))
-                  if (now.isAfter(windowEnd)) {
-                    // Window expired: reset counter
-                    val newState =
-                      state + (clientIp -> RateLimitState(1, now))
-                    (Some(config.maxRequests - 1), newState)
-                  } else if (limitState.requestCount < config.maxRequests) {
-                    // Within limit: increment counter
-                    val updated = limitState.copy(
-                      requestCount = limitState.requestCount + 1
-                    )
-                    val newState = state + (clientIp -> updated)
-                    val remaining = config.maxRequests - updated.requestCount
-                    (Some(remaining), newState)
-                  } else {
-                    // Limit exceeded: deny
-                    (None, state)
-                  }
-              }
-            }
+                          case Some(limitState) =>
+                            val windowEnd = limitState.windowStartTime
+                              .plus(
+                                java.time.Duration.ofMillis(
+                                  config.timeWindow.toMillis
+                                )
+                              )
+                            if (now.isAfter(windowEnd)) {
+                              // Window expired: reset counter
+                              val newState =
+                                state + (clientIp -> RateLimitState(1, now))
+                              (Some(config.maxRequests - 1), newState)
+                            } else if (
+                              limitState.requestCount < config.maxRequests
+                            ) {
+                              // Within limit: increment counter
+                              val updated = limitState.copy(
+                                requestCount = limitState.requestCount + 1
+                              )
+                              val newState = state + (clientIp -> updated)
+                              val remaining =
+                                config.maxRequests - updated.requestCount
+                              (Some(remaining), newState)
+                            } else {
+                              // Limit exceeded: deny
+                              (None, state)
+                            }
+                        }
+                      }
           } yield result
 
         /**
@@ -1262,8 +1278,8 @@ package CommunicationProtocolsZIOHTTP {
          * Each middleware instance maintains its own isolated rate limit state
          * (per-route semantics).
          *
-         * Returns 429 Too Many Requests if client IP exceeds the configured limit.
-         * Otherwise allows the request through.
+         * Returns 429 Too Many Requests if client IP exceeds the configured
+         * limit. Otherwise allows the request through.
          */
         def rateLimitMiddleware(
           config: RateLimitConfig
@@ -1294,19 +1310,16 @@ package CommunicationProtocolsZIOHTTP {
       }
 
       /**
-       * Example application demonstrating the rate limit middleware.
-       * Applies a 5-request-per-10-second limit to the /api/data endpoint.
+       * Example application demonstrating the rate limit middleware. Applies a
+       * 5-request-per-10-second limit to the /api/data endpoint.
        *
        * Example usage:
-       * - First 5 requests within 10 seconds: 200 OK
-       * - 6th+ requests within same window: 429 Too Many Requests
-       * - After 10 seconds: counter resets, new requests allowed
+       *   - First 5 requests within 10 seconds: 200 OK
+       *   - 6th+ requests within same window: 429 Too Many Requests
+       *   - After 10 seconds: counter resets, new requests allowed
        *
-       * Test with:
-       * for i in {1..10}; do
-       *   curl -X GET http://localhost:8080/api/data
-       *   echo "Request $i"
-       * done
+       * Test with: for i in {1..10}; do curl -X GET
+       * http://localhost:8080/api/data echo "Request $i" done
        */
       object ExampleApp extends ZIOAppDefault {
 
@@ -1362,29 +1375,33 @@ package CommunicationProtocolsZIOHTTP {
                      )
                    )
                    .provide(
-                     ZLayer.succeed(Server.Config.default.port(port)) >>> Server.live
+                     ZLayer.succeed(
+                       Server.Config.default.port(port)
+                     ) >>> Server.live
                    )
                    .fork
             _ <- ZIO.sleep(1.second)
 
             // TEST 1: Requests under limit (3 allowed)
-            _ <- ZIO.debug("\n=== TEST 1: Send 3 requests (under limit) ===")
+            _    <- ZIO.debug("\n=== TEST 1: Send 3 requests (under limit) ===")
             url1 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/test"))
             _ <- ZIO.foreachDiscard((1 to 3)) { i =>
-              for {
-                res <- Client.batched(Request.get(url1))
-                _ <- ZIO.debug(s"Request $i: ${res.status}")
-                _ <- if (res.status == Status.Ok) {
-                       ZIO.succeed(())
-                     } else {
-                       ZIO.fail(s"Request $i failed: expected 200, got ${res.status}")
-                     }
-              } yield ()
-            }
+                   for {
+                     res <- Client.batched(Request.get(url1))
+                     _   <- ZIO.debug(s"Request $i: ${res.status}")
+                     _ <- if (res.status == Status.Ok) {
+                            ZIO.succeed(())
+                          } else {
+                            ZIO.fail(
+                              s"Request $i failed: expected 200, got ${res.status}"
+                            )
+                          }
+                   } yield ()
+                 }
             _ <- ZIO.debug("✅ TEST 1 passed - all 3 requests allowed")
 
             // TEST 2: Exceed limit (4th request should be denied)
-            _ <- ZIO.debug("\n=== TEST 2: Send 4th request (exceeds limit) ===")
+            _    <- ZIO.debug("\n=== TEST 2: Send 4th request (exceeds limit) ===")
             res2 <- Client.batched(Request.get(url1))
             _    <- ZIO.debug(s"Request 4: ${res2.status}")
             _ <- if (res2.status == Status.TooManyRequests) {
@@ -1396,7 +1413,9 @@ package CommunicationProtocolsZIOHTTP {
                  }
 
             // TEST 3: Wait for window to expire, then verify counter resets
-            _ <- ZIO.debug("\n=== TEST 3: Wait 5 seconds for window expiration ===")
+            _ <- ZIO.debug(
+                   "\n=== TEST 3: Wait 5 seconds for window expiration ==="
+                 )
             _ <- ZIO.sleep(5500.millis)
             _ <- ZIO.debug("Window expired, counter should reset")
 
@@ -1404,7 +1423,9 @@ package CommunicationProtocolsZIOHTTP {
             res3 <- Client.batched(Request.get(url1))
             _    <- ZIO.debug(s"Request after reset: ${res3.status}")
             _ <- if (res3.status == Status.Ok) {
-                   ZIO.debug("✅ TEST 3 passed - counter reset after window expiration")
+                   ZIO.debug(
+                     "✅ TEST 3 passed - counter reset after window expiration"
+                   )
                  } else {
                    ZIO.fail(
                      s"TEST 3 failed: expected 200 after reset, got ${res3.status}"
