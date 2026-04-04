@@ -936,6 +936,29 @@ package CommunicationProtocolsZIOHTTP {
                    )
                  }
 
+            // TEST 2: Empty filename should be rejected
+            _ <- ZIO.debug("\n=== TEST 2: POST /upload with empty filename ===")
+            testContent2 = "content"
+            url2 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            form2 = Form(
+                      FormField.Text("filename", "", MediaType.text.`plain`),
+                      FormField.Binary(
+                        "file",
+                        Chunk.fromArray(testContent2.getBytes),
+                        MediaType.application.`octet-stream`
+                      )
+                    )
+            boundary2 = Boundary("----WebKitFormBoundary7MA4YWxkTrZu0gW")
+            body2 = Body.fromMultipartForm(form2, boundary2)
+            req2  = Request.post(url2, body2)
+            res2 <- Client.batched(req2)
+            _    <- ZIO.debug(s"Response: ${res2.status}")
+            _ <- if (res2.status == Status.BadRequest) {
+                   ZIO.debug("✅ TEST 2 passed - empty filename rejected")
+                 } else {
+                   ZIO.fail(s"TEST 2 failed: expected 400 Bad Request, got ${res2.status}")
+                 }
+
             _ <- ZIO.debug("\n✅ All tests completed successfully!")
           } yield ()).provide(Client.default)
       }
