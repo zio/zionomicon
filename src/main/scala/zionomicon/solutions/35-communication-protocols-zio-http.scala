@@ -740,25 +740,37 @@ package CommunicationProtocolsZIOHTTP {
       object FileUploadRoutes {
 
         /**
-         * Validates a filename to prevent directory traversal and invalid paths.
+         * Validates a filename to prevent directory traversal and invalid
+         * paths.
          *
          * Rules:
-         * - Non-empty
-         * - No path separators (/ or \)
-         * - Not "." or ".."
-         * - No null bytes
+         *   - Non-empty
+         *   - No path separators (/ or \)
+         *   - Not "." or ".."
+         *   - No null bytes
          *
-         * Returns Either[UploadError, String] where Right contains the validated filename.
+         * Returns Either[UploadError, String] where Right contains the
+         * validated filename.
          */
-        private def validateFilename(name: String): Either[UploadError, String] =
+        private def validateFilename(
+          name: String
+        ): Either[UploadError, String] =
           if (name.isEmpty)
             Left(UploadError.InvalidFileName("Filename cannot be empty"))
           else if (name == "." || name == "..")
             Left(UploadError.InvalidFileName(s"Invalid filename: $name"))
           else if (name.contains('/') || name.contains('\\'))
-            Left(UploadError.InvalidFileName(s"Filename cannot contain path separators: $name"))
+            Left(
+              UploadError.InvalidFileName(
+                s"Filename cannot contain path separators: $name"
+              )
+            )
           else if (name.contains('\u0000'))
-            Left(UploadError.InvalidFileName(s"Filename cannot contain null bytes: $name"))
+            Left(
+              UploadError.InvalidFileName(
+                s"Filename cannot contain null bytes: $name"
+              )
+            )
           else
             Right(name)
 
@@ -766,72 +778,88 @@ package CommunicationProtocolsZIOHTTP {
          * Creates a POST /upload endpoint that accepts multipart form data.
          *
          * Expected form fields:
-         * - filename: String (the name to save the file as)
-         * - file: Binary data (the file content)
+         *   - filename: String (the name to save the file as)
+         *   - file: Binary data (the file content)
          *
          * Returns:
-         * - 201 Created on success
-         * - 400 Bad Request if filename is invalid
-         * - 500 Internal Server Error if file save fails
+         *   - 201 Created on success
+         *   - 400 Bad Request if filename is invalid
+         *   - 500 Internal Server Error if file save fails
          *
          * DESIGN: Request streaming must be enabled via
-         * Server.Config.default.enableRequestStreaming on the server.
-         * This allows streaming large files without buffering in memory.
+         * Server.Config.default.enableRequestStreaming on the server. This
+         * allows streaming large files without buffering in memory.
          */
-        def uploadEndpoint(uploadDir: String): zio.http.Routes[Any, Response] = {
+        def uploadEndpoint(
+          uploadDir: String
+        ): zio.http.Routes[Any, Response] = {
           val uploadDirFile = new File(uploadDir).getCanonicalFile
 
           Routes(
             Method.POST / "upload" -> handler { (req: Request) =>
-              req.body.asMultipartForm.mapBoth(
-                e => Response.internalServerError(e.getMessage),
-                form => {
-                  val filename = form.get("filename").collect {
-                    case FormField.Text(_, value, _, _) => value
-                  }
-                  val fileField = form.get("file")
+              req.body.asMultipartForm
+                .mapBoth(
+                  e => Response.internalServerError(e.getMessage),
+                  form => {
+                    val filename = form.get("filename").collect {
+                      case FormField.Text(_, value, _, _) => value
+                    }
+                    val fileField = form.get("file")
 
-                  (filename, fileField) match {
-                    case (None, _) =>
-                      ZIO.succeed(
-                        Response.badRequest("Missing or invalid 'filename' field")
-                      )
-                    case (_, None) =>
-                      ZIO.succeed(Response.badRequest("Missing 'file' field"))
-                    case (Some(fname), Some(field)) =>
-                      val validated = validateFilename(fname)
-                      (validated: @unchecked) match {
-                        case Left(UploadError.InvalidFileName(msg)) =>
-                          ZIO.succeed(Response.badRequest(msg))
-                        case Right(validName) =>
-                          val targetPath =
-                            new File(uploadDirFile, validName).getCanonicalFile.toPath
-                          if (!targetPath.toFile.getPath.startsWith(
+                    (filename, fileField) match {
+                      case (None, _) =>
+                        ZIO.succeed(
+                          Response.badRequest(
+                            "Missing or invalid 'filename' field"
+                          )
+                        )
+                      case (_, None) =>
+                        ZIO.succeed(Response.badRequest("Missing 'file' field"))
+                      case (Some(fname), Some(field)) =>
+                        val validated = validateFilename(fname)
+                        (validated: @unchecked) match {
+                          case Left(UploadError.InvalidFileName(msg)) =>
+                            ZIO.succeed(Response.badRequest(msg))
+                          case Right(validName) =>
+                            val targetPath =
+                              new File(
+                                uploadDirFile,
+                                validName
+                              ).getCanonicalFile.toPath
+                            if (
+                              !targetPath.toFile.getPath.startsWith(
                                 uploadDirFile.getPath
-                              )) {
-                            ZIO.succeed(Response.badRequest("Invalid file path"))
-                          } else {
-                            (field match {
-                              case FormField.Binary(_, data, _, _, _) =>
-                                ZStream.fromChunk(data).run(ZSink.fromPath(targetPath))
-                              case FormField.StreamingBinary(_, _, _, _, data) =>
-                                data.run(ZSink.fromPath(targetPath))
-                              case _ =>
-                                ZIO.fail(
-                                  new Exception("Invalid file field type")
-                                )
-                            }).mapBoth(
-                              e =>
-                                Response.internalServerError(
-                                  s"Save error: ${e.getMessage}"
-                                ),
-                              _ => Response.status(Status.Created)
-                            )
-                          }
-                      }
+                              )
+                            ) {
+                              ZIO.succeed(
+                                Response.badRequest("Invalid file path")
+                              )
+                            } else {
+                              (field match {
+                                case FormField.Binary(_, data, _, _, _) =>
+                                  ZStream
+                                    .fromChunk(data)
+                                    .run(ZSink.fromPath(targetPath))
+                                case FormField
+                                      .StreamingBinary(_, _, _, _, data) =>
+                                  data.run(ZSink.fromPath(targetPath))
+                                case _ =>
+                                  ZIO.fail(
+                                    new Exception("Invalid file field type")
+                                  )
+                              }).mapBoth(
+                                e =>
+                                  Response.internalServerError(
+                                    s"Save error: ${e.getMessage}"
+                                  ),
+                                _ => Response.status(Status.Created)
+                              )
+                            }
+                        }
+                    }
                   }
-                }
-              ).flatMap(x => x)
+                )
+                .flatMap(x => x)
             }
           )
         }
@@ -841,8 +869,8 @@ package CommunicationProtocolsZIOHTTP {
        * Example application demonstrating the file upload endpoint in action.
        * Uploads are saved to /tmp/uploads on port 8080.
        *
-       * Example usage:
-       * curl -F "filename=myfile.txt" -F "file=@myfile.txt" http://localhost:8080/upload
+       * Example usage: curl -F "filename=myfile.txt" -F "file=@myfile.txt"
+       * http://localhost:8080/upload
        *
        * NOTE: Server.Config.default.enableRequestStreaming must be set to allow
        * large files to be streamed without buffering the entire request body.
@@ -850,20 +878,26 @@ package CommunicationProtocolsZIOHTTP {
       object ExampleApp extends ZIOAppDefault {
 
         def run: ZIO[Any, Any, Unit] =
-          ZIO.debug("Starting file upload server on http://localhost:8080/upload") *>
+          ZIO.debug(
+            "Starting file upload server on http://localhost:8080/upload"
+          ) *>
             Server
               .serve(FileUploadRoutes.uploadEndpoint("/tmp/uploads"))
               .provide(
-                ZLayer.succeed(Server.Config.default.enableRequestStreaming) >>> Server.live
+                ZLayer.succeed(
+                  Server.Config.default.enableRequestStreaming
+                ) >>> Server.live
               )
       }
 
       /**
-       * Integration tests for the file upload endpoint using ZIO HTTP Client API.
+       * Integration tests for the file upload endpoint using ZIO HTTP Client
+       * API.
        *
-       * NOTE: We use ZIOAppDefault instead of ZIOSpecDefault for integration tests
-       * because ZIO Test's test clock framework is incompatible with real I/O operations
-       * (HTTP servers, network requests). Integration tests need wall-clock time semantics.
+       * NOTE: We use ZIOAppDefault instead of ZIOSpecDefault for integration
+       * tests because ZIO Test's test clock framework is incompatible with real
+       * I/O operations (HTTP servers, network requests). Integration tests need
+       * wall-clock time semantics.
        *
        * Run with: sbtn "runMain
        * zionomicon.solutions.CommunicationProtocolsZIOHTTP.FileUploadEndpoint.Solution.FileUploadEndpointTest"
@@ -874,8 +908,8 @@ package CommunicationProtocolsZIOHTTP {
           (for {
             // Create a temporary directory for uploads
             tempDir <- ZIO.attemptBlocking(
-                        JFiles.createTempDirectory("zio-http-upload-test")
-                      )
+                         JFiles.createTempDirectory("zio-http-upload-test")
+                       )
             _ <- ZIO.debug(s"Created temp directory: $tempDir")
 
             // Allocate a free port
@@ -899,11 +933,14 @@ package CommunicationProtocolsZIOHTTP {
             _ <- ZIO.sleep(1.second)
 
             // TEST 1: Upload a valid file
-            _ <- ZIO.debug("\n=== TEST 1: POST /upload with valid multipart form ===")
+            _ <- ZIO.debug(
+                   "\n=== TEST 1: POST /upload with valid multipart form ==="
+                 )
             testContent1 = "Hello, World!"
-            url1 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            url1        <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
             form1 = Form(
-                      FormField.Text("filename", "hello.txt", MediaType.text.`plain`),
+                      FormField
+                        .Text("filename", "hello.txt", MediaType.text.`plain`),
                       FormField.Binary(
                         "file",
                         Chunk.fromArray(testContent1.getBytes),
@@ -911,21 +948,25 @@ package CommunicationProtocolsZIOHTTP {
                       )
                     )
             boundary = Boundary("----WebKitFormBoundary7MA4YWxkTrZu0gW")
-            body1 = Body.fromMultipartForm(form1, boundary)
-            req1  = Request.post(url1, body1)
-            res1 <- Client.batched(req1)
-            _    <- ZIO.debug(s"Response: ${res1.status}")
+            body1    = Body.fromMultipartForm(form1, boundary)
+            req1     = Request.post(url1, body1)
+            res1    <- Client.batched(req1)
+            _       <- ZIO.debug(s"Response: ${res1.status}")
             _ <- if (res1.status == Status.Created) {
                    ZIO.debug("✅ TEST 1 passed - file uploaded successfully")
                  } else {
-                   ZIO.fail(s"TEST 1 failed: expected 201 Created, got ${res1.status}")
+                   ZIO.fail(
+                     s"TEST 1 failed: expected 201 Created, got ${res1.status}"
+                   )
                  }
 
             // TEST 1b: Verify uploaded file content
-            _ <- ZIO.debug("\n=== TEST 1b: Verify uploaded file content ===")
+            _           <- ZIO.debug("\n=== TEST 1b: Verify uploaded file content ===")
             uploadedFile = new File(tempDir.toFile, "hello.txt")
             uploadedContent <- ZIO.attemptBlocking {
-                                 new String(JFiles.readAllBytes(uploadedFile.toPath))
+                                 new String(
+                                   JFiles.readAllBytes(uploadedFile.toPath)
+                                 )
                                }
             _ <- ZIO.debug(s"Uploaded content: $uploadedContent")
             _ <- if (uploadedContent == testContent1) {
@@ -937,9 +978,9 @@ package CommunicationProtocolsZIOHTTP {
                  }
 
             // TEST 2: Empty filename should be rejected
-            _ <- ZIO.debug("\n=== TEST 2: POST /upload with empty filename ===")
+            _           <- ZIO.debug("\n=== TEST 2: POST /upload with empty filename ===")
             testContent2 = "content"
-            url2 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            url2        <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
             form2 = Form(
                       FormField.Text("filename", "", MediaType.text.`plain`),
                       FormField.Binary(
@@ -949,22 +990,30 @@ package CommunicationProtocolsZIOHTTP {
                       )
                     )
             boundary2 = Boundary("----WebKitFormBoundary7MA4YWxkTrZu0gW")
-            body2 = Body.fromMultipartForm(form2, boundary2)
-            req2  = Request.post(url2, body2)
-            res2 <- Client.batched(req2)
-            _    <- ZIO.debug(s"Response: ${res2.status}")
+            body2     = Body.fromMultipartForm(form2, boundary2)
+            req2      = Request.post(url2, body2)
+            res2     <- Client.batched(req2)
+            _        <- ZIO.debug(s"Response: ${res2.status}")
             _ <- if (res2.status == Status.BadRequest) {
                    ZIO.debug("✅ TEST 2 passed - empty filename rejected")
                  } else {
-                   ZIO.fail(s"TEST 2 failed: expected 400 Bad Request, got ${res2.status}")
+                   ZIO.fail(
+                     s"TEST 2 failed: expected 400 Bad Request, got ${res2.status}"
+                   )
                  }
 
             // TEST 3: Path traversal attempt (../) should be blocked
-            _ <- ZIO.debug("\n=== TEST 3: POST /upload with path traversal (../) ===")
+            _ <- ZIO.debug(
+                   "\n=== TEST 3: POST /upload with path traversal (../) ==="
+                 )
             testContent3 = "malicious"
-            url3 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            url3        <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
             form3 = Form(
-                      FormField.Text("filename", "../../../etc/passwd", MediaType.text.`plain`),
+                      FormField.Text(
+                        "filename",
+                        "../../../etc/passwd",
+                        MediaType.text.`plain`
+                      ),
                       FormField.Binary(
                         "file",
                         Chunk.fromArray(testContent3.getBytes),
@@ -972,10 +1021,10 @@ package CommunicationProtocolsZIOHTTP {
                       )
                     )
             boundary3 = Boundary("----WebKitFormBoundary7MA4YWxkTrZu0gW")
-            body3 = Body.fromMultipartForm(form3, boundary3)
-            req3  = Request.post(url3, body3)
-            res3 <- Client.batched(req3)
-            _    <- ZIO.debug(s"Response: ${res3.status}")
+            body3     = Body.fromMultipartForm(form3, boundary3)
+            req3      = Request.post(url3, body3)
+            res3     <- Client.batched(req3)
+            _        <- ZIO.debug(s"Response: ${res3.status}")
             _ <- if (res3.status == Status.BadRequest) {
                    ZIO.debug("✅ TEST 3 passed - path traversal blocked")
                  } else {
@@ -985,17 +1034,20 @@ package CommunicationProtocolsZIOHTTP {
                  }
 
             // TEST 4: Missing 'file' field should return 400
-            _ <- ZIO.debug("\n=== TEST 4: POST /upload with missing 'file' field ===")
+            _ <- ZIO.debug(
+                   "\n=== TEST 4: POST /upload with missing 'file' field ==="
+                 )
             url4 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
-            form4 = Form(
-                      FormField.Text("filename", "test.txt", MediaType.text.`plain`)
-                      // Missing file field
-                    )
+            form4 =
+              Form(
+                FormField.Text("filename", "test.txt", MediaType.text.`plain`)
+                // Missing file field
+              )
             boundary4 = Boundary("----WebKitFormBoundary7MA4YWxkTrZu0gW")
-            body4 = Body.fromMultipartForm(form4, boundary4)
-            req4  = Request.post(url4, body4)
-            res4 <- Client.batched(req4)
-            _    <- ZIO.debug(s"Response: ${res4.status}")
+            body4     = Body.fromMultipartForm(form4, boundary4)
+            req4      = Request.post(url4, body4)
+            res4     <- Client.batched(req4)
+            _        <- ZIO.debug(s"Response: ${res4.status}")
             _ <- if (res4.status == Status.BadRequest) {
                    ZIO.debug("✅ TEST 4 passed - missing file field rejected")
                  } else {
@@ -1005,11 +1057,17 @@ package CommunicationProtocolsZIOHTTP {
                  }
 
             // TEST 5: Large file upload (5 MB) to verify streaming works
-            _ <- ZIO.debug("\n=== TEST 5: POST /upload with large file (5 MB) ===")
-            largeContent = Array.fill[Byte](5 * 1024 * 1024)(65.toByte) // 5 MB of 'A'
+            _ <-
+              ZIO.debug("\n=== TEST 5: POST /upload with large file (5 MB) ===")
+            largeContent =
+              Array.fill[Byte](5 * 1024 * 1024)(65.toByte) // 5 MB of 'A'
             url5 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
             form5 = Form(
-                      FormField.Text("filename", "largefile.bin", MediaType.text.`plain`),
+                      FormField.Text(
+                        "filename",
+                        "largefile.bin",
+                        MediaType.text.`plain`
+                      ),
                       FormField.Binary(
                         "file",
                         Chunk.fromArray(largeContent),
@@ -1017,14 +1075,18 @@ package CommunicationProtocolsZIOHTTP {
                       )
                     )
             boundary5 = Boundary("----WebKitFormBoundary7MA4YWxkTrZu0gW")
-            body5 = Body.fromMultipartForm(form5, boundary5)
-            req5  = Request.post(url5, body5)
-            res5 <- Client.batched(req5)
-            _    <- ZIO.debug(s"Response: ${res5.status}")
+            body5     = Body.fromMultipartForm(form5, boundary5)
+            req5      = Request.post(url5, body5)
+            res5     <- Client.batched(req5)
+            _        <- ZIO.debug(s"Response: ${res5.status}")
             _ <- if (res5.status == Status.Created) {
-                   ZIO.debug("✅ TEST 5 passed - large file uploaded successfully")
+                   ZIO.debug(
+                     "✅ TEST 5 passed - large file uploaded successfully"
+                   )
                  } else {
-                   ZIO.fail(s"TEST 5 failed: expected 201 Created, got ${res5.status}")
+                   ZIO.fail(
+                     s"TEST 5 failed: expected 201 Created, got ${res5.status}"
+                   )
                  }
 
             // Verify large file size
@@ -1032,9 +1094,12 @@ package CommunicationProtocolsZIOHTTP {
             fileSize <- ZIO.attemptBlocking {
                           JFiles.size(largeFile.toPath)
                         }
-            _ <- ZIO.debug(s"Uploaded file size: ${fileSize / (1024 * 1024)} MB")
+            _ <-
+              ZIO.debug(s"Uploaded file size: ${fileSize / (1024 * 1024)} MB")
             _ <- if (fileSize == largeContent.length) {
-                   ZIO.debug("✅ Large file size matches - streaming works correctly")
+                   ZIO.debug(
+                     "✅ Large file size matches - streaming works correctly"
+                   )
                  } else {
                    ZIO.fail(
                      s"File size mismatch: expected ${largeContent.length}, got $fileSize"
