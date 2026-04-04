@@ -898,8 +898,44 @@ package CommunicationProtocolsZIOHTTP {
                    .fork
             _ <- ZIO.sleep(1.second)
 
-            // Tests will go here
-            _ <- ZIO.debug("Running file upload tests...")
+            // TEST 1: Upload a valid file
+            _ <- ZIO.debug("\n=== TEST 1: POST /upload with valid multipart form ===")
+            testContent1 = "Hello, World!"
+            url1 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            form1 = Form(
+                      FormField.Text("filename", "hello.txt", MediaType.text.`plain`),
+                      FormField.Binary(
+                        "file",
+                        Chunk.fromArray(testContent1.getBytes),
+                        MediaType.application.`octet-stream`
+                      )
+                    )
+            boundary = Boundary("----WebKitFormBoundary7MA4YWxkTrZu0gW")
+            body1 = Body.fromMultipartForm(form1, boundary)
+            req1  = Request.post(url1, body1)
+            res1 <- Client.batched(req1)
+            _    <- ZIO.debug(s"Response: ${res1.status}")
+            _ <- if (res1.status == Status.Created) {
+                   ZIO.debug("✅ TEST 1 passed - file uploaded successfully")
+                 } else {
+                   ZIO.fail(s"TEST 1 failed: expected 201 Created, got ${res1.status}")
+                 }
+
+            // TEST 1b: Verify uploaded file content
+            _ <- ZIO.debug("\n=== TEST 1b: Verify uploaded file content ===")
+            uploadedFile = new File(tempDir.toFile, "hello.txt")
+            uploadedContent <- ZIO.attemptBlocking {
+                                 new String(JFiles.readAllBytes(uploadedFile.toPath))
+                               }
+            _ <- ZIO.debug(s"Uploaded content: $uploadedContent")
+            _ <- if (uploadedContent == testContent1) {
+                   ZIO.debug("✅ TEST 1b passed - file content matches")
+                 } else {
+                   ZIO.fail(
+                     s"TEST 1b failed: expected '$testContent1', got '$uploadedContent'"
+                   )
+                 }
+
             _ <- ZIO.debug("\n✅ All tests completed successfully!")
           } yield ()).provide(Client.default)
       }
