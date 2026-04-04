@@ -959,6 +959,31 @@ package CommunicationProtocolsZIOHTTP {
                    ZIO.fail(s"TEST 2 failed: expected 400 Bad Request, got ${res2.status}")
                  }
 
+            // TEST 3: Path traversal attempt (../) should be blocked
+            _ <- ZIO.debug("\n=== TEST 3: POST /upload with path traversal (../) ===")
+            testContent3 = "malicious"
+            url3 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            form3 = Form(
+                      FormField.Text("filename", "../../../etc/passwd", MediaType.text.`plain`),
+                      FormField.Binary(
+                        "file",
+                        Chunk.fromArray(testContent3.getBytes),
+                        MediaType.application.`octet-stream`
+                      )
+                    )
+            boundary3 = Boundary("----WebKitFormBoundary7MA4YWxkTrZu0gW")
+            body3 = Body.fromMultipartForm(form3, boundary3)
+            req3  = Request.post(url3, body3)
+            res3 <- Client.batched(req3)
+            _    <- ZIO.debug(s"Response: ${res3.status}")
+            _ <- if (res3.status == Status.BadRequest) {
+                   ZIO.debug("✅ TEST 3 passed - path traversal blocked")
+                 } else {
+                   ZIO.fail(
+                     s"TEST 3 failed: expected 400 Bad Request for traversal attempt, got ${res3.status}"
+                   )
+                 }
+
             _ <- ZIO.debug("\n✅ All tests completed successfully!")
           } yield ()).provide(Client.default)
       }
