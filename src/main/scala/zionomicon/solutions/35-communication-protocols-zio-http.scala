@@ -1285,17 +1285,20 @@ package CommunicationProtocolsZIOHTTP {
           config: RateLimitConfig
         ): HandlerAspect[Any, Unit] = {
           // Use a Promise to ensure the state Ref is created exactly once
-          val stateRefInitializer: scala.concurrent.Promise[Ref[Map[String, RateLimitState]]] =
+          val stateRefInitializer
+            : scala.concurrent.Promise[Ref[Map[String, RateLimitState]]] =
             scala.concurrent.Promise()
 
           def getOrCreateStateRef
-              : ZIO[Any, Nothing, Ref[Map[String, RateLimitState]]] = {
+            : ZIO[Any, Nothing, Ref[Map[String, RateLimitState]]] =
             if (stateRefInitializer.isCompleted) {
               // Already initialized, get cached ref
               stateRefInitializer.future.value.get match {
                 case scala.util.Success(ref) => ZIO.succeed(ref)
                 case scala.util.Failure(e) =>
-                  ZIO.die(e) // Should never happen for a successfully completed promise
+                  ZIO.die(
+                    e
+                  ) // Should never happen for a successfully completed promise
               }
             } else {
               // First request: initialize the Ref and cache it
@@ -1306,7 +1309,6 @@ package CommunicationProtocolsZIOHTTP {
                 }
               }
             }
-          }
 
           HandlerAspect.interceptHandlerStateful(
             Handler.fromFunctionZIO[Request] { req =>
