@@ -1284,12 +1284,33 @@ package CommunicationProtocolsZIOHTTP {
         def rateLimitMiddleware(
           config: RateLimitConfig
         ): HandlerAspect[Any, Unit] = {
-          // Create state once per middleware instance, reused across all requests
-          lazy val stateRefEffect = Ref.make(Map.empty[String, RateLimitState])
+          // Use a Promise to ensure the state Ref is created exactly once
+          val stateRefInitializer: scala.concurrent.Promise[Ref[Map[String, RateLimitState]]] =
+            scala.concurrent.Promise()
+
+          def getOrCreateStateRef
+              : ZIO[Any, Nothing, Ref[Map[String, RateLimitState]]] = {
+            if (stateRefInitializer.isCompleted) {
+              // Already initialized, get cached ref
+              stateRefInitializer.future.value.get match {
+                case scala.util.Success(ref) => ZIO.succeed(ref)
+                case scala.util.Failure(e) =>
+                  ZIO.die(e) // Should never happen for a successfully completed promise
+              }
+            } else {
+              // First request: initialize the Ref and cache it
+              Ref.make(Map.empty[String, RateLimitState]).flatMap { newRef =>
+                ZIO.succeed {
+                  stateRefInitializer.trySuccess(newRef)
+                  newRef
+                }
+              }
+            }
+          }
 
           HandlerAspect.interceptHandlerStateful(
             Handler.fromFunctionZIO[Request] { req =>
-              stateRefEffect.flatMap { stateRef =>
+              getOrCreateStateRef.flatMap { stateRef =>
                 val clientIp = extractClientIp(req)
                 checkRateLimit(stateRef, config, clientIp).map { allowed =>
                   (allowed, (req, ()))
@@ -1299,10 +1320,8 @@ package CommunicationProtocolsZIOHTTP {
           )(
             Handler.fromFunctionZIO[(Option[Int], Response)] {
               case (Some(_), response) =>
-                // Request allowed, return the response
                 ZIO.succeed(response)
               case (None, _) =>
-                // Rate limit exceeded, return 429
                 ZIO.succeed(Response.status(Status.TooManyRequests))
             }
           )
@@ -1384,7 +1403,7 @@ package CommunicationProtocolsZIOHTTP {
 
             // TEST 1: Requests under limit (3 allowed)
             _    <- ZIO.debug("\n=== TEST 1: Send 3 requests (under limit) ===")
-            url1 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/test"))
+            url1 <- ZIO.fromEither(URL.decode(s"http://127.0.0.1:$port/test"))
             _ <- ZIO.foreachDiscard((1 to 3)) { i =>
                    for {
                      res <- Client.batched(Request.get(url1))

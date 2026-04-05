@@ -26,7 +26,10 @@
       "WebFetch(domain:timpigden.github.io)",
       "WebFetch(domain:ziohttp.com)",
       "WebFetch(domain:scala.monster)",
-      "WebFetch(domain:medium.com)"
+      "WebFetch(domain:medium.com)",
+      "Bash(xargs -I{} unzip -l {})",
+      "WebFetch(domain:javadoc.io)",
+      "Bash(tee /tmp/test_output.txt)"
     ]
   }
 }
