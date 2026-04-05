@@ -17,6 +17,8 @@ libraryDependencies ++= Seq(
   "dev.zio"        %% "zio-config-typesafe"      % "4.0.5",
   "dev.zio"        %% "zio-http"                 % "3.7.1",
   "dev.zio"        %% "zio-json"                 % "0.7.1",
+  "dev.zio"        %% "zio-schema"               % "1.7.3",
+  "dev.zio"        %% "zio-schema-derivation"    % "1.7.3",
   "dev.zio"        %% "zio-schema-protobuf"      % "1.3.0",
   "dev.zio"        %% "zio-test"                 % "2.1.21",
   "dev.zio"        %% "zio-prelude"              % "1.0.0-RC39",
@@ -25,7 +27,8 @@ libraryDependencies ++= Seq(
   "org.tpolecat"   %% "doobie-hikari"            % "1.0.0-RC9",
   "org.xerial"      % "sqlite-jdbc"              % "3.49.1.0",
   "org.openjdk.jmh" % "jmh-core"                 % "1.37",
-  "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.37"
+  "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.37",
+  "io.getkyo"      %% "kyo-scheduler"            % "0.19.0"
 )
 
 scalacOptions ++= Seq(
