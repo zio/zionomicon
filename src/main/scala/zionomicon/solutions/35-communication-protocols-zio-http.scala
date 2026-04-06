@@ -212,7 +212,7 @@ package CommunicationProtocolsZIOHTTP {
                    "\n=== TEST 3: POST /books - Add 'Functional Programming in Scala' ==="
                  )
             url3 <- ZIO.fromEither(
-                      URL.decode("http://localhost:8080/books")
+                      URL.decode(s"http://127.0.0.1:$port/books")
                     )
             book3 = Book(
                       "Functional Programming in Scala",
@@ -231,7 +231,7 @@ package CommunicationProtocolsZIOHTTP {
                    "\n=== TEST 4: GET /books?q=functional - Query with different keyword ==="
                  )
             url4 <- ZIO.fromEither(
-                      URL.decode("http://localhost:8080/books?q=functional")
+                      URL.decode(s"http://127.0.0.1:$port/books?q=functional")
                     )
             req4    = Request.get(url4)
             res4   <- Client.batched(req4)
@@ -250,7 +250,7 @@ package CommunicationProtocolsZIOHTTP {
                    "\n=== TEST 5: GET /books - Missing query parameter ==="
                  )
             url5 <- ZIO.fromEither(
-                      URL.decode("http://localhost:8080/books")
+                      URL.decode(s"http://127.0.0.1:$port/books")
                     )
             req5  = Request.get(url5)
             res5 <- Client.batched(req5)
@@ -846,10 +846,15 @@ package CommunicationProtocolsZIOHTTP {
                         ZIO.succeed(Response.badRequest("Missing 'file' field"))
                       case (Some(fname), Some(field)) =>
                         val validated = validateFilename(fname)
-                        (validated: @unchecked) match {
-                          case Left(UploadError.InvalidFileName(msg)) =>
+                        validated.fold(
+                          error => {
+                            val msg = error match {
+                              case UploadError.InvalidFileName(m) => m
+                              case UploadError.SaveError(m)       => m
+                            }
                             ZIO.succeed(Response.badRequest(msg))
-                          case Right(validName) =>
+                          },
+                          validName => {
                             val targetPath =
                               new File(
                                 uploadDirFile,
@@ -880,7 +885,8 @@ package CommunicationProtocolsZIOHTTP {
                                 _ => Response.status(Status.Created)
                               )
                             }
-                        }
+                          }
+                        )
                     }
                   }
                 )
@@ -1183,7 +1189,16 @@ package CommunicationProtocolsZIOHTTP {
       case class RateLimitConfig(
         maxRequests: Int,
         timeWindow: zio.Duration
-      )
+      ) {
+        require(
+          maxRequests > 0,
+          s"maxRequests must be positive, got $maxRequests"
+        )
+        require(
+          !timeWindow.isNegative && timeWindow != zio.Duration.Zero,
+          s"timeWindow must be positive, got $timeWindow"
+        )
+      }
 
       /**
        * Internal state for tracking a single IP address.
@@ -1215,13 +1230,26 @@ package CommunicationProtocolsZIOHTTP {
          */
         private def extractClientIp(req: Request): String = {
           // Extract just the host/IP from socket address, excluding port
-          // to prevent clients from bypassing rate limits via port variation
+          // to prevent clients from bypassing rate limits via port variation.
+          // Handles both IPv4 (IP:port) and IPv6 ([IP]:port) formats.
           val socketStr = req.remoteAddress.map(_.toString).getOrElse("unknown")
-          // Socket address format is "/IP:port", extract just the IP part
-          if (socketStr.startsWith("/")) {
-            socketStr.substring(1).split(":").head
+          val trimmed =
+            if (socketStr.startsWith("/")) socketStr.substring(1)
+            else socketStr
+
+          // Handle IPv6 format: [IP]:port, extract between [ and ]
+          if (trimmed.startsWith("[")) {
+            trimmed.substring(1).takeWhile(_ != ']')
+          }
+          // Handle IPv4 format: IP:port, take everything before last colon
+          else if (trimmed.contains(":")) {
+            trimmed.lastIndexOf(":") match {
+              case -1  => trimmed
+              case idx => trimmed.substring(0, idx)
+            }
           } else {
-            socketStr.split(":").head
+            // No port, return as-is
+            trimmed
           }
         }
 
