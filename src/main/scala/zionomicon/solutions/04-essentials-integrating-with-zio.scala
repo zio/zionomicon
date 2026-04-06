@@ -162,7 +162,85 @@ package Exercise1 {
  *      publish arbitrary messages to a queue. Lepus is a purely functional
  *      scala client for RabbitMQ. You can find the library homepage
  *      [here](http://lepus.hnaderi.dev/).
+ *
+ * To run this example, ensure RabbitMQ is running locally (or adjust the
+ * configuration in the code). You can start a RabbitMQ instance with Docker:
+ *
+ * {{{
+ *   docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management
+ * }}}
  */
 package Exercise2 {
+  import cats.effect.std.Console as CatsConsole
+  import lepus.client._
+  import lepus.protocol.domains._
+  import zio.interop.catz._
+  import zio.{Console, Task, ZIO, ZIOAppDefault}
 
+  object Main extends ZIOAppDefault {
+    implicit lazy val taskConsole: CatsConsole[Task] = CatsConsole.make[Task]
+
+    def app(conn: Connection[Task]): Task[Unit] =
+      conn.channel.use { channel =>
+        for {
+          // Publish to the default exchange with a queue name as routing key
+          qname <- ZIO
+                     .fromEither(QueueName.from("test-queue"))
+                     .mapError(msg => new Exception(msg))
+          _ <- channel.queue.declare(qname)
+          _ <- channel.messaging.publish(
+                 exchange = ExchangeName(""),
+                 routingKey = qname,
+                 Message("Hello from ZIO and Lepus!")
+               )
+          _ <- Console.printLine("✓ Published message to test-queue")
+
+          _ <- channel.messaging.publish(
+                 exchange = ExchangeName(""),
+                 routingKey = qname,
+                 Message(
+                   """{"event": "user_created", "userId": 123, "timestamp": "2026-04-03"}"""
+                 )
+               )
+          _ <- Console.printLine("✓ Published JSON message to test-queue")
+
+          // Publish to a topic exchange with different routing keys
+          exname <- ZIO
+                      .fromEither(ExchangeName.from("events-exchange"))
+                      .mapError(msg => new Exception(msg))
+          _ <- channel.exchange.declare(exname, ExchangeType.Topic)
+          rk1 <- ZIO
+                   .fromEither(ShortString.from("user.created"))
+                   .mapError(msg => new Exception(msg))
+          _ <- channel.messaging.publish(
+                 exchange = exname,
+                 routingKey = rk1,
+                 Message("""{"event": "user_created", "userId": 123}""")
+               )
+          _ <-
+            Console.printLine(
+              "✓ Published message to events-exchange with routing key user.created"
+            )
+
+          rk2 <- ZIO
+                   .fromEither(ShortString.from("order.completed"))
+                   .mapError(msg => new Exception(msg))
+          _ <- channel.messaging.publish(
+                 exchange = exname,
+                 routingKey = rk2,
+                 Message("""{"event": "order_completed", "orderId": 456}""")
+               )
+          _ <-
+            Console.printLine(
+              "✓ Published message to events-exchange with routing key order.completed"
+            )
+        } yield ()
+      }
+
+    def run: ZIO[Scope, Throwable, Unit] =
+      for {
+        conn <- LepusClient[Task]().toScopedZIO
+        _    <- app(conn)
+      } yield ()
+  }
 }
