@@ -29,8 +29,8 @@ object EssentialsIntegratingWithZIO {
 
   /**
    * Write a ZIO program that uses Lepus to connect to RabbitMQ server and
-   * publish arbitrary messages to a queue. Lepus is a purely functional
-   * Scala client for RabbitMQ. You can find the library homepage
+   * publish arbitrary messages to a queue. Lepus is a purely functional Scala
+   * client for RabbitMQ. You can find the library homepage
    * [here](http://lepus.hnaderi.dev/).
    *
    * To run this example, ensure RabbitMQ is running locally (or adjust the
