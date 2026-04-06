@@ -2,6 +2,8 @@ inThisBuild {
   Seq(
     name                       := "zionomicon-exercises",
     scalaVersion               := "3.7.0",
+    semanticdbEnabled          := true,
+    semanticdbVersion          := scalafixSemanticdb.revision,
     ciReleaseJobs              := Seq.empty,
     ciCheckWebsiteBuildProcess := Seq.empty,
     ciPostReleaseJobs          := Seq.empty,
@@ -35,7 +37,8 @@ libraryDependencies ++= Seq(
 )
 
 scalacOptions ++= Seq(
-  "-deprecation"
+  "-deprecation",
+  "-Wunused:imports"
 )
 
 publish / skip := true
