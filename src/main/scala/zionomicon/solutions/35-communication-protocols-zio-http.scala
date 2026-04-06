@@ -658,7 +658,7 @@ package CommunicationProtocolsZIOHTTP {
             // TEST 1: Serve a file in the root
             _ <- ZIO.debug("\n=== TEST 1: GET /hello.txt ===")
             url1 <-
-              ZIO.fromEither(URL.decode(s"http://localhost:$port/hello.txt"))
+              ZIO.fromEither(URL.decode(s"http://127.0.0.1:$port/hello.txt"))
             req1   = Request.get(url1)
             res1  <- Client.batched(req1)
             body1 <- res1.body.asString
@@ -674,7 +674,7 @@ package CommunicationProtocolsZIOHTTP {
             // TEST 2: Serve a file in a subdirectory
             _ <- ZIO.debug("\n=== TEST 2: GET /subdir/data.json ===")
             url2 <- ZIO.fromEither(
-                      URL.decode(s"http://localhost:$port/subdir/data.json")
+                      URL.decode(s"http://127.0.0.1:$port/subdir/data.json")
                     )
             req2   = Request.get(url2)
             res2  <- Client.batched(req2)
@@ -694,7 +694,7 @@ package CommunicationProtocolsZIOHTTP {
                    "\n=== TEST 3: GET /nonexistent.txt (should be 404) ==="
                  )
             url3 <- ZIO.fromEither(
-                      URL.decode(s"http://localhost:$port/nonexistent.txt")
+                      URL.decode(s"http://127.0.0.1:$port/nonexistent.txt")
                     )
             req3  = Request.get(url3)
             res3 <- Client.batched(req3)
@@ -708,7 +708,7 @@ package CommunicationProtocolsZIOHTTP {
             // TEST 4: Directory traversal attack prevention
             _ <- ZIO.debug("\n=== TEST 4: Path traversal protection (/../) ===")
             url4 <- ZIO.fromEither(
-                      URL.decode(s"http://localhost:$port/../etc/passwd")
+                      URL.decode(s"http://127.0.0.1:$port/../etc/passwd")
                     )
             req4  = Request.get(url4)
             res4 <- Client.batched(req4)
@@ -726,7 +726,7 @@ package CommunicationProtocolsZIOHTTP {
                    "\n=== TEST 5: GET /subdir/ (directory, should be 404) ==="
                  )
             url5 <-
-              ZIO.fromEither(URL.decode(s"http://localhost:$port/subdir/"))
+              ZIO.fromEither(URL.decode(s"http://127.0.0.1:$port/subdir/"))
             req5  = Request.get(url5)
             res5 <- Client.batched(req5)
             _    <- ZIO.debug(s"Response: ${res5.status}")
@@ -865,25 +865,36 @@ package CommunicationProtocolsZIOHTTP {
                                 Response.badRequest("Invalid file path")
                               )
                             } else {
-                              (field match {
+                              field match {
                                 case FormField.Binary(_, data, _, _, _) =>
                                   ZStream
                                     .fromChunk(data)
                                     .run(ZSink.fromPath(targetPath))
+                                    .mapBoth(
+                                      e =>
+                                        Response.internalServerError(
+                                          s"Save error: ${e.getMessage}"
+                                        ),
+                                      _ => Response.status(Status.Created)
+                                    )
                                 case FormField
                                       .StreamingBinary(_, _, _, _, data) =>
-                                  data.run(ZSink.fromPath(targetPath))
+                                  data
+                                    .run(ZSink.fromPath(targetPath))
+                                    .mapBoth(
+                                      e =>
+                                        Response.internalServerError(
+                                          s"Save error: ${e.getMessage}"
+                                        ),
+                                      _ => Response.status(Status.Created)
+                                    )
                                 case _ =>
-                                  ZIO.fail(
-                                    new Exception("Invalid file field type")
+                                  ZIO.succeed(
+                                    Response.badRequest(
+                                      "Invalid file field type"
+                                    )
                                   )
-                              }).mapBoth(
-                                e =>
-                                  Response.internalServerError(
-                                    s"Save error: ${e.getMessage}"
-                                  ),
-                                _ => Response.status(Status.Created)
-                              )
+                              }
                             }
                           }
                         )
@@ -968,7 +979,7 @@ package CommunicationProtocolsZIOHTTP {
                    "\n=== TEST 1: POST /upload with valid multipart form ==="
                  )
             testContent1 = "Hello, World!"
-            url1        <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            url1        <- ZIO.fromEither(URL.decode(s"http://127.0.0.1:$port/upload"))
             form1 = Form(
                       FormField
                         .Text("filename", "hello.txt", MediaType.text.`plain`),
@@ -1011,7 +1022,7 @@ package CommunicationProtocolsZIOHTTP {
             // TEST 2: Empty filename should be rejected
             _           <- ZIO.debug("\n=== TEST 2: POST /upload with empty filename ===")
             testContent2 = "content"
-            url2        <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            url2        <- ZIO.fromEither(URL.decode(s"http://127.0.0.1:$port/upload"))
             form2 = Form(
                       FormField.Text("filename", "", MediaType.text.`plain`),
                       FormField.Binary(
@@ -1038,7 +1049,7 @@ package CommunicationProtocolsZIOHTTP {
                    "\n=== TEST 3: POST /upload with path traversal (../) ==="
                  )
             testContent3 = "malicious"
-            url3        <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            url3        <- ZIO.fromEither(URL.decode(s"http://127.0.0.1:$port/upload"))
             form3 = Form(
                       FormField.Text(
                         "filename",
@@ -1068,7 +1079,7 @@ package CommunicationProtocolsZIOHTTP {
             _ <- ZIO.debug(
                    "\n=== TEST 4: POST /upload with missing 'file' field ==="
                  )
-            url4 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            url4 <- ZIO.fromEither(URL.decode(s"http://127.0.0.1:$port/upload"))
             form4 =
               Form(
                 FormField.Text("filename", "test.txt", MediaType.text.`plain`)
@@ -1092,7 +1103,7 @@ package CommunicationProtocolsZIOHTTP {
               ZIO.debug("\n=== TEST 5: POST /upload with large file (5 MB) ===")
             largeContent =
               Array.fill[Byte](5 * 1024 * 1024)(65.toByte) // 5 MB of 'A'
-            url5 <- ZIO.fromEither(URL.decode(s"http://localhost:$port/upload"))
+            url5 <- ZIO.fromEither(URL.decode(s"http://127.0.0.1:$port/upload"))
             form5 = Form(
                       FormField.Text(
                         "filename",
@@ -1175,6 +1186,7 @@ package CommunicationProtocolsZIOHTTP {
     import zio._
     import zio.http._
     import java.time.Instant
+    import java.net.InetSocketAddress
 
     package Solution {
 
@@ -1228,30 +1240,18 @@ package CommunicationProtocolsZIOHTTP {
          *   1. Request.remoteAddress (socket address, host/IP only, not port)
          *   2. "unknown" (fallback)
          */
-        private def extractClientIp(req: Request): String = {
-          // Extract just the host/IP from socket address, excluding port
-          // to prevent clients from bypassing rate limits via port variation.
-          // Handles both IPv4 (IP:port) and IPv6 ([IP]:port) formats.
-          val socketStr = req.remoteAddress.map(_.toString).getOrElse("unknown")
-          val trimmed =
-            if (socketStr.startsWith("/")) socketStr.substring(1)
-            else socketStr
-
-          // Handle IPv6 format: [IP]:port, extract between [ and ]
-          if (trimmed.startsWith("[")) {
-            trimmed.substring(1).takeWhile(_ != ']')
+        private def extractClientIp(req: Request): String =
+          // Extract the host/IP address from the socket address, excluding port.
+          // This prevents clients from bypassing rate limits via port variation.
+          // Prefers InetSocketAddress.getAddress().getHostAddress() for robustness
+          // across IPv4 and IPv6 formats, avoiding string parsing which is brittle.
+          req.remoteAddress.flatMap {
+            case inet: InetSocketAddress =>
+              Option(inet.getAddress).map(_.getHostAddress)
+            case _ =>
+              None
           }
-          // Handle IPv4 format: IP:port, take everything before last colon
-          else if (trimmed.contains(":")) {
-            trimmed.lastIndexOf(":") match {
-              case -1  => trimmed
-              case idx => trimmed.substring(0, idx)
-            }
-          } else {
-            // No port, return as-is
-            trimmed
-          }
-        }
+            .getOrElse("unknown")
 
         /**
          * Checks if a request from the given IP should be allowed under the
@@ -1274,23 +1274,44 @@ package CommunicationProtocolsZIOHTTP {
           for {
             now <- Clock.instant
             result <- stateRef.modify { state =>
-                        // Opportunistic cleanup: remove expired entries for all IPs
-                        // to prevent unbounded memory growth on long-running servers.
-                        // Only clean up expired entries, keeping current window active.
-                        val cleanedState = state.filter {
-                          case (_, limitState) =>
+                        // Lazy cleanup strategy to avoid O(n) on every request:
+                        // 1. Only remove expired entry for the current IP (fast)
+                        // 2. Perform full cleanup only when map size grows too large (e.g., > 10k entries)
+                        //    This bounds memory growth while keeping per-request overhead constant.
+
+                        // Quick check: is the current IP's window expired?
+                        val currentIpExpired =
+                          state.get(clientIp).exists { limitState =>
                             val windowEnd = limitState.windowStartTime
                               .plus(
                                 java.time.Duration.ofMillis(
                                   config.timeWindow.toMillis
                                 )
                               )
-                            now.isBefore(windowEnd)
+                            now.isAfter(windowEnd)
+                          }
+
+                        // Fast path: remove only the current IP if expired
+                        var cleanedState =
+                          if (currentIpExpired) state - clientIp else state
+
+                        // Occasional full cleanup: if map size exceeds threshold (10k), prune all expired
+                        if (cleanedState.size > 10000) {
+                          cleanedState = cleanedState.filter {
+                            case (_, limitState) =>
+                              val windowEnd = limitState.windowStartTime
+                                .plus(
+                                  java.time.Duration.ofMillis(
+                                    config.timeWindow.toMillis
+                                  )
+                                )
+                              now.isBefore(windowEnd)
+                          }
                         }
 
                         cleanedState.get(clientIp) match {
                           case None =>
-                            // New IP: create entry with count 1
+                            // New IP (or expired): create entry with count 1
                             val newState =
                               cleanedState + (clientIp -> RateLimitState(
                                 1,
