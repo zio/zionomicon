@@ -150,9 +150,24 @@ package CommunicationProtocolsZIOHTTP {
             repo  <- BookRepo.inMemory
             routes = ProtobufRoutes.protobufBookRoutes
             _     <- ZIO.debug("Starting Protobuf Routes Integration Tests...")
+
+            // Allocate a free port to avoid conflicts
+            port <- ZIO.attemptBlocking {
+                      val socket = new java.net.ServerSocket(0)
+                      val p      = socket.getLocalPort
+                      socket.close()
+                      p
+                    }
+            _ <- ZIO.debug(s"Allocated port: $port")
+
             _ <- Server
                    .serve(routes)
-                   .provide(Server.default, ZLayer.succeed(repo))
+                   .provide(
+                     ZLayer.succeed(
+                       Server.Config.default.port(port)
+                     ) >>> Server.live,
+                     ZLayer.succeed(repo)
+                   )
                    .fork
             _ <- ZIO.sleep(1.second)
 
@@ -160,7 +175,7 @@ package CommunicationProtocolsZIOHTTP {
                    "\n=== TEST 1: POST /books - Add 'Programming in Scala' ==="
                  )
             url1 <- ZIO.fromEither(
-                      URL.decode("http://localhost:8080/books")
+                      URL.decode(s"http://127.0.0.1:$port/books")
                     )
             book1 = Book(
                       "Programming in Scala",
@@ -177,7 +192,7 @@ package CommunicationProtocolsZIOHTTP {
 
             _ <- ZIO.debug("\n=== TEST 2: GET /books?q=scala - Query books ===")
             url2 <- ZIO.fromEither(
-                      URL.decode("http://localhost:8080/books?q=scala")
+                      URL.decode(s"http://127.0.0.1:$port/books?q=scala")
                     )
             req2    = Request.get(url2)
             res2   <- Client.batched(req2)
@@ -418,15 +433,29 @@ package CommunicationProtocolsZIOHTTP {
         def run: ZIO[Any, Any, Unit] =
           (for {
             _ <- ZIO.debug("Starting Duration Logging Tests...")
+
+            // Allocate a free port to avoid conflicts
+            port <- ZIO.attemptBlocking {
+                      val socket = new java.net.ServerSocket(0)
+                      val p      = socket.getLocalPort
+                      socket.close()
+                      p
+                    }
+            _ <- ZIO.debug(s"Allocated port: $port")
+
             _ <- Server
                    .serve(testRoutes)
-                   .provide(Server.default)
+                   .provide(
+                     ZLayer.succeed(
+                       Server.Config.default.port(port)
+                     ) >>> Server.live
+                   )
                    .fork
             _ <- ZIO.sleep(1.second)
 
             _ <- ZIO.debug("\n=== TEST 1: Fast endpoint ===")
             url1 <- ZIO.fromEither(
-                      URL.decode("http://localhost:8080/fast")
+                      URL.decode(s"http://127.0.0.1:$port/fast")
                     )
             req1   = Request.get(url1)
             res1  <- Client.batched(req1)
@@ -435,7 +464,7 @@ package CommunicationProtocolsZIOHTTP {
 
             _ <- ZIO.debug("\n=== TEST 2: Slow endpoint (500ms delay) ===")
             url2 <- ZIO.fromEither(
-                      URL.decode("http://localhost:8080/slow")
+                      URL.decode(s"http://127.0.0.1:$port/slow")
                     )
             req2   = Request.get(url2)
             res2  <- Client.batched(req2)
@@ -444,7 +473,7 @@ package CommunicationProtocolsZIOHTTP {
 
             _ <- ZIO.debug("\n=== TEST 3: Hello endpoint ===")
             url3 <- ZIO.fromEither(
-                      URL.decode("http://localhost:8080/hello")
+                      URL.decode(s"http://127.0.0.1:$port/hello")
                     )
             req3   = Request.get(url3)
             res3  <- Client.batched(req3)
@@ -546,7 +575,7 @@ package CommunicationProtocolsZIOHTTP {
                 val file         = new File(baseDirFile, relativePath).getCanonicalFile
 
                 if (
-                  !file.getPath.startsWith(baseDirFile.getPath) || !file
+                  !file.toPath.startsWith(baseDirFile.toPath) || !file
                     .exists() || !file.isFile
                 )
                   ZIO.succeed(Response.status(Status.NotFound))
@@ -826,11 +855,7 @@ package CommunicationProtocolsZIOHTTP {
                                 uploadDirFile,
                                 validName
                               ).getCanonicalFile.toPath
-                            if (
-                              !targetPath.toFile.getPath.startsWith(
-                                uploadDirFile.getPath
-                              )
-                            ) {
+                            if (!targetPath.startsWith(uploadDirFile.toPath)) {
                               ZIO.succeed(
                                 Response.badRequest("Invalid file path")
                               )
@@ -1178,17 +1203,27 @@ package CommunicationProtocolsZIOHTTP {
         /**
          * Extracts the client IP address from a request.
          *
+         * Security note: This implementation prioritizes the socket remote
+         * address, which is more secure. X-Forwarded-For can be spoofed by
+         * untrusted clients to bypass rate limits or DoS other users. Only use
+         * X-Forwarded-For if the service is deployed behind a trusted proxy
+         * that sanitizes and overwrites this header.
+         *
          * Priority:
-         *   1. X-Forwarded-For header (first IP if comma-separated)
-         *   2. Request.remoteAddress (socket address)
-         *   3. "unknown" (fallback)
+         *   1. Request.remoteAddress (socket address, host/IP only, not port)
+         *   2. "unknown" (fallback)
          */
-        private def extractClientIp(req: Request): String =
-          req.headers
-            .get("X-Forwarded-For")
-            .map(_.split(",").head.trim)
-            .orElse(req.remoteAddress.map(_.toString))
-            .getOrElse("unknown")
+        private def extractClientIp(req: Request): String = {
+          // Extract just the host/IP from socket address, excluding port
+          // to prevent clients from bypassing rate limits via port variation
+          val socketStr = req.remoteAddress.map(_.toString).getOrElse("unknown")
+          // Socket address format is "/IP:port", extract just the IP part
+          if (socketStr.startsWith("/")) {
+            socketStr.substring(1).split(":").head
+          } else {
+            socketStr.split(":").head
+          }
+        }
 
         /**
          * Removes expired entries from the rate limit map.
@@ -1234,11 +1269,28 @@ package CommunicationProtocolsZIOHTTP {
           for {
             now <- Clock.instant
             result <- stateRef.modify { state =>
-                        state.get(clientIp) match {
+                        // Opportunistic cleanup: remove expired entries for all IPs
+                        // to prevent unbounded memory growth on long-running servers.
+                        // Only clean up expired entries, keeping current window active.
+                        val cleanedState = state.filter {
+                          case (_, limitState) =>
+                            val windowEnd = limitState.windowStartTime
+                              .plus(
+                                java.time.Duration.ofMillis(
+                                  config.timeWindow.toMillis
+                                )
+                              )
+                            now.isBefore(windowEnd)
+                        }
+
+                        cleanedState.get(clientIp) match {
                           case None =>
                             // New IP: create entry with count 1
                             val newState =
-                              state + (clientIp -> RateLimitState(1, now))
+                              cleanedState + (clientIp -> RateLimitState(
+                                1,
+                                now
+                              ))
                             (Some(config.maxRequests - 1), newState)
 
                           case Some(limitState) =>
@@ -1251,7 +1303,10 @@ package CommunicationProtocolsZIOHTTP {
                             if (now.isAfter(windowEnd)) {
                               // Window expired: reset counter
                               val newState =
-                                state + (clientIp -> RateLimitState(1, now))
+                                cleanedState + (clientIp -> RateLimitState(
+                                  1,
+                                  now
+                                ))
                               (Some(config.maxRequests - 1), newState)
                             } else if (
                               limitState.requestCount < config.maxRequests
@@ -1260,13 +1315,14 @@ package CommunicationProtocolsZIOHTTP {
                               val updated = limitState.copy(
                                 requestCount = limitState.requestCount + 1
                               )
-                              val newState = state + (clientIp -> updated)
+                              val newState =
+                                cleanedState + (clientIp -> updated)
                               val remaining =
                                 config.maxRequests - updated.requestCount
                               (Some(remaining), newState)
                             } else {
                               // Limit exceeded: deny
-                              (None, state)
+                              (None, cleanedState)
                             }
                         }
                       }
@@ -1284,39 +1340,21 @@ package CommunicationProtocolsZIOHTTP {
         def rateLimitMiddleware(
           config: RateLimitConfig
         ): HandlerAspect[Any, Unit] = {
-          // Use a Promise to ensure the state Ref is created exactly once
-          val stateRefInitializer
-            : scala.concurrent.Promise[Ref[Map[String, RateLimitState]]] =
-            scala.concurrent.Promise()
-
-          def getOrCreateStateRef
-            : ZIO[Any, Nothing, Ref[Map[String, RateLimitState]]] =
-            if (stateRefInitializer.isCompleted) {
-              // Already initialized, get cached ref
-              stateRefInitializer.future.value.get match {
-                case scala.util.Success(ref) => ZIO.succeed(ref)
-                case scala.util.Failure(e) =>
-                  ZIO.die(
-                    e
-                  ) // Should never happen for a successfully completed promise
-              }
-            } else {
-              // First request: initialize the Ref and cache it
-              Ref.make(Map.empty[String, RateLimitState]).flatMap { newRef =>
-                ZIO.succeed {
-                  stateRefInitializer.trySuccess(newRef)
-                  newRef
-                }
-              }
+          // Eagerly create exactly one shared Ref per middleware instance so
+          // all requests observe and update the same rate-limit state.
+          // Use Ref.unsafe.make to avoid ZIO context dependency and ensure
+          // the Ref is created once, preventing race conditions that could
+          // split traffic across multiple Refs.
+          val stateRef: Ref[Map[String, RateLimitState]] =
+            zio.Unsafe.unsafe { implicit unsafe =>
+              Ref.unsafe.make(Map.empty[String, RateLimitState])
             }
 
           HandlerAspect.interceptHandlerStateful(
             Handler.fromFunctionZIO[Request] { req =>
-              getOrCreateStateRef.flatMap { stateRef =>
-                val clientIp = extractClientIp(req)
-                checkRateLimit(stateRef, config, clientIp).map { allowed =>
-                  (allowed, (req, ()))
-                }
+              val clientIp = extractClientIp(req)
+              checkRateLimit(stateRef, config, clientIp).map { allowed =>
+                (allowed, (req, ()))
               }
             }
           )(
