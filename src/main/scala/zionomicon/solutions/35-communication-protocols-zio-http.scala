@@ -1254,29 +1254,6 @@ package CommunicationProtocolsZIOHTTP {
         }
 
         /**
-         * Removes expired entries from the rate limit map.
-         *
-         * Called periodically to prevent unbounded memory growth. Removes
-         * entries where windowStartTime + timeWindow < now.
-         */
-        private def cleanupExpiredEntries(
-          stateRef: Ref[Map[String, RateLimitState]],
-          config: RateLimitConfig
-        ): ZIO[Any, Nothing, Unit] =
-          for {
-            now <- Clock.instant
-            _ <- stateRef.update { state =>
-                   state.filter { case (_, limitState) =>
-                     val windowEnd = limitState.windowStartTime
-                       .plus(
-                         java.time.Duration.ofMillis(config.timeWindow.toMillis)
-                       )
-                     now.isBefore(windowEnd)
-                   }
-                 }
-          } yield ()
-
-        /**
          * Checks if a request from the given IP should be allowed under the
          * rate limit.
          *
