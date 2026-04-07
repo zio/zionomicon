@@ -851,86 +851,83 @@ package CommunicationProtocolsZIOHTTP {
           }.map { uploadDirFile =>
             Routes(
               Method.POST / "upload" -> handler { (req: Request) =>
-                req.body.asMultipartForm
-                  .mapBoth(
-                    _ => Response.badRequest("Invalid multipart form"),
-                    form => {
-                      val filename = form.get("filename").collect {
-                        case FormField.Text(_, value, _, _) => value
-                      }
-                      val fileField = form.get("file")
+                req.body.asMultipartForm.foldZIO(
+                  _ =>
+                    ZIO.succeed(Response.badRequest("Invalid multipart form")),
+                  form => {
+                    val filename = form.get("filename").collect {
+                      case FormField.Text(_, value, _, _) => value
+                    }
+                    val fileField = form.get("file")
 
-                      (filename, fileField) match {
-                        case (None, _) =>
-                          ZIO.succeed(
-                            Response.badRequest(
-                              "Missing or invalid 'filename' field"
-                            )
+                    (filename, fileField) match {
+                      case (None, _) =>
+                        ZIO.succeed(
+                          Response.badRequest(
+                            "Missing or invalid 'filename' field"
                           )
-                        case (_, None) =>
-                          ZIO.succeed(
-                            Response.badRequest("Missing 'file' field")
-                          )
-                        case (Some(fname), Some(field)) =>
-                          val validated = validateFilename(fname)
-                          validated.fold(
-                            error => {
-                              val msg = error match {
-                                case UploadError.InvalidFileName(m) => m
-                                case UploadError.SaveError(m)       => m
-                              }
-                              ZIO.succeed(Response.badRequest(msg))
-                            },
-                            validName => {
-                              val targetPath =
-                                new File(
-                                  uploadDirFile,
-                                  validName
-                                ).getCanonicalFile.toPath
-                              if (
-                                !targetPath.startsWith(uploadDirFile.toPath)
-                              ) {
-                                ZIO.succeed(
-                                  Response.badRequest("Invalid file path")
-                                )
-                              } else {
-                                field match {
-                                  case FormField.Binary(_, data, _, _, _) =>
-                                    ZStream
-                                      .fromChunk(data)
-                                      .run(ZSink.fromPath(targetPath))
-                                      .mapBoth(
-                                        _ =>
-                                          Response.internalServerError(
-                                            "Failed to process upload"
-                                          ),
-                                        _ => Response.status(Status.Created)
-                                      )
-                                  case FormField
-                                        .StreamingBinary(_, _, _, _, data) =>
-                                    data
-                                      .run(ZSink.fromPath(targetPath))
-                                      .mapBoth(
-                                        _ =>
-                                          Response.internalServerError(
-                                            "Failed to process upload"
-                                          ),
-                                        _ => Response.status(Status.Created)
-                                      )
-                                  case _ =>
-                                    ZIO.succeed(
-                                      Response.badRequest(
-                                        "Invalid file field type"
-                                      )
+                        )
+                      case (_, None) =>
+                        ZIO.succeed(
+                          Response.badRequest("Missing 'file' field")
+                        )
+                      case (Some(fname), Some(field)) =>
+                        val validated = validateFilename(fname)
+                        validated.fold(
+                          error => {
+                            val msg = error match {
+                              case UploadError.InvalidFileName(m) => m
+                              case UploadError.SaveError(m)       => m
+                            }
+                            ZIO.succeed(Response.badRequest(msg))
+                          },
+                          validName => {
+                            val targetPath =
+                              new File(
+                                uploadDirFile,
+                                validName
+                              ).getCanonicalFile.toPath
+                            if (!targetPath.startsWith(uploadDirFile.toPath)) {
+                              ZIO.succeed(
+                                Response.badRequest("Invalid file path")
+                              )
+                            } else {
+                              field match {
+                                case FormField.Binary(_, data, _, _, _) =>
+                                  ZStream
+                                    .fromChunk(data)
+                                    .run(ZSink.fromPath(targetPath))
+                                    .mapBoth(
+                                      _ =>
+                                        Response.internalServerError(
+                                          "Failed to process upload"
+                                        ),
+                                      _ => Response.status(Status.Created)
                                     )
-                                }
+                                case FormField
+                                      .StreamingBinary(_, _, _, _, data) =>
+                                  data
+                                    .run(ZSink.fromPath(targetPath))
+                                    .mapBoth(
+                                      _ =>
+                                        Response.internalServerError(
+                                          "Failed to process upload"
+                                        ),
+                                      _ => Response.status(Status.Created)
+                                    )
+                                case _ =>
+                                  ZIO.succeed(
+                                    Response.badRequest(
+                                      "Invalid file field type"
+                                    )
+                                  )
                               }
                             }
-                          )
-                      }
+                          }
+                        )
                     }
-                  )
-                  .flatMap(x => x)
+                  }
+                )
               }
             )
           }
@@ -1202,11 +1199,13 @@ package CommunicationProtocolsZIOHTTP {
    *   timeWindow: Duration     // Time window for the limit
    * )
    *
-   * def rateLimitMiddleware(config: RateLimitConfig): HandlerAspect[Any] = ???
+   * def rateLimitMiddleware(config: RateLimitConfig): ZIO[Any, Nothing, HandlerAspect[Any, Unit]] = ???
    *
    * // Usage example:
-   * // val limiter = rateLimitMiddleware(RateLimitConfig(100, 1.minute))
-   * // val route = (Method.GET / "api" / "data") -> handler { ... } @@ limiter
+   * // for {
+   * //   limiter <- rateLimitMiddleware(RateLimitConfig(100, 1.minute))
+   * //   _ <- Server.serve((Method.GET / "api" / "data" -> handler { ... }) @@ limiter)
+   * // } yield ()
    *
    * // Expected behavior:
    * // First 100 requests within 1 minute -> 200 OK
@@ -1348,7 +1347,7 @@ package CommunicationProtocolsZIOHTTP {
                                     config.timeWindow.toMillis
                                   )
                                 )
-                              now.isBefore(windowEnd)
+                              !now.isAfter(windowEnd)
                           }
                         }
 
