@@ -197,14 +197,19 @@ object EssentialsIntegratingWithZIO_Solutions {
     object Main extends ZIOAppDefault {
       implicit lazy val taskConsole: CatsConsole[Task] = CatsConsole.make[Task]
 
+      private def fromDomain[A](domain: Either[String, A]): Task[A] =
+        ZIO
+          .fromEither(domain)
+          .mapError(msg =>
+            new Exception(s"Failed to create domain value: $msg")
+          )
+
       def app(conn: Connection[Task]): Task[Unit] =
         conn.channel.use { channel =>
           for {
             // Publish to the default exchange with a queue name as routing key
-            qname <- ZIO
-                       .fromEither(QueueName.from("test-queue"))
-                       .mapError(msg => new Exception(msg))
-            _ <- channel.queue.declare(qname)
+            qname <- fromDomain(QueueName.from("test-queue"))
+            _     <- channel.queue.declare(qname)
             _ <- channel.messaging.publish(
                    exchange = ExchangeName(""),
                    routingKey = qname,
@@ -222,13 +227,9 @@ object EssentialsIntegratingWithZIO_Solutions {
             _ <- Console.printLine("✓ Published JSON message to test-queue")
 
             // Publish to a topic exchange with different routing keys
-            exname <- ZIO
-                        .fromEither(ExchangeName.from("events-exchange"))
-                        .mapError(msg => new Exception(msg))
-            _ <- channel.exchange.declare(exname, ExchangeType.Topic)
-            rk1 <- ZIO
-                     .fromEither(ShortString.from("user.created"))
-                     .mapError(msg => new Exception(msg))
+            exname <- fromDomain(ExchangeName.from("events-exchange"))
+            _      <- channel.exchange.declare(exname, ExchangeType.Topic)
+            rk1    <- fromDomain(ShortString.from("user.created"))
             _ <- channel.messaging.publish(
                    exchange = exname,
                    routingKey = rk1,
@@ -239,9 +240,7 @@ object EssentialsIntegratingWithZIO_Solutions {
                 "✓ Published message to events-exchange with routing key user.created"
               )
 
-            rk2 <- ZIO
-                     .fromEither(ShortString.from("order.completed"))
-                     .mapError(msg => new Exception(msg))
+            rk2 <- fromDomain(ShortString.from("order.completed"))
             _ <- channel.messaging.publish(
                    exchange = exname,
                    routingKey = rk2,
