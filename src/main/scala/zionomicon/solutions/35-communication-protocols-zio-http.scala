@@ -140,7 +140,7 @@ package CommunicationProtocolsZIOHTTP {
 
       /**
        * Integration tests for Protobuf-encoded routes using ZIO HTTP Client
-       * API. Run with: sbtn "runMain
+       * API. Run with: sbt "runMain
        * zionomicon.solutions.CommunicationProtocolsZIOHTTP.ProtobufEncoding.Solution.ProtobufRoutesTest"
        */
       object ProtobufRoutesTest extends ZIOAppDefault {
@@ -425,7 +425,7 @@ package CommunicationProtocolsZIOHTTP {
 
       /**
        * Test application demonstrating duration logging with ZIO HTTP Client.
-       * Run with: sbtn "runMain
+       * Run with: sbt "runMain
        * zionomicon.solutions.CommunicationProtocolsZIOHTTP.RequestDurationLogging.Solution.DurationLoggingTest"
        */
       object DurationLoggingTest extends ZIOAppDefault {
@@ -608,7 +608,7 @@ package CommunicationProtocolsZIOHTTP {
        * I/O operations (HTTP servers, network requests). Integration tests need
        * wall-clock time semantics.
        *
-       * Run with: sbtn "runMain
+       * Run with: sbt "runMain
        * zionomicon.solutions.CommunicationProtocolsZIOHTTP.StaticFileServer.Solution.StaticFileServerTest"
        */
       object StaticFileServerTest extends ZIOAppDefault {
@@ -824,6 +824,14 @@ package CommunicationProtocolsZIOHTTP {
         ): zio.http.Routes[Any, Response] = {
           val uploadDirFile = new File(uploadDir).getCanonicalFile
 
+          // Ensure upload directory exists and is a directory
+          JFiles.createDirectories(uploadDirFile.toPath)
+          if (!uploadDirFile.isDirectory) {
+            throw new IllegalArgumentException(
+              s"Upload path is not a directory: ${uploadDirFile.getPath}"
+            )
+          }
+
           Routes(
             Method.POST / "upload" -> handler { (req: Request) =>
               req.body.asMultipartForm
@@ -941,7 +949,7 @@ package CommunicationProtocolsZIOHTTP {
        * I/O operations (HTTP servers, network requests). Integration tests need
        * wall-clock time semantics.
        *
-       * Run with: sbtn "runMain
+       * Run with: sbt "runMain
        * zionomicon.solutions.CommunicationProtocolsZIOHTTP.FileUploadEndpoint.Solution.FileUploadEndpointTest"
        */
       object FileUploadEndpointTest extends ZIOAppDefault {
@@ -1245,11 +1253,13 @@ package CommunicationProtocolsZIOHTTP {
           // This prevents clients from bypassing rate limits via port variation.
           // Prefers InetSocketAddress.getAddress().getHostAddress() for robustness
           // across IPv4 and IPv6 formats, avoiding string parsing which is brittle.
-          req.remoteAddress.flatMap {
-            case inet: InetSocketAddress =>
+          req.remoteAddress.flatMap { addr =>
+            if (addr.isInstanceOf[InetSocketAddress]) {
+              val inet = addr.asInstanceOf[InetSocketAddress]
               Option(inet.getAddress).map(_.getHostAddress)
-            case _ =>
+            } else {
               None
+            }
           }
             .getOrElse("unknown")
 
@@ -1379,16 +1389,16 @@ package CommunicationProtocolsZIOHTTP {
           HandlerAspect.interceptHandlerStateful(
             Handler.fromFunctionZIO[Request] { req =>
               val clientIp = extractClientIp(req)
-              checkRateLimit(stateRef, config, clientIp).map { allowed =>
-                (allowed, (req, ()))
+              checkRateLimit(stateRef, config, clientIp).flatMap {
+                case Some(_) =>
+                  ZIO.succeed(((), (req, ())))
+                case None =>
+                  ZIO.fail(Response.status(Status.TooManyRequests))
               }
             }
           )(
-            Handler.fromFunctionZIO[(Option[Int], Response)] {
-              case (Some(_), response) =>
-                ZIO.succeed(response)
-              case (None, _) =>
-                ZIO.succeed(Response.status(Status.TooManyRequests))
+            Handler.fromFunctionZIO[(Unit, Response)] { case (_, response) =>
+              ZIO.succeed(response)
             }
           )
         }
@@ -1429,7 +1439,7 @@ package CommunicationProtocolsZIOHTTP {
        * NOTE: We use ZIOAppDefault for integration tests (not ZIOSpecDefault)
        * because real I/O operations need wall-clock time semantics.
        *
-       * Run with: sbtn "runMain
+       * Run with: sbt "runMain
        * zionomicon.solutions.CommunicationProtocolsZIOHTTP.RateLimiting.Solution.RateLimitTest"
        */
       object RateLimitTest extends ZIOAppDefault {
