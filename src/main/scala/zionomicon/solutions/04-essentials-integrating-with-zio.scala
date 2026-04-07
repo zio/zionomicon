@@ -64,10 +64,25 @@ object EssentialsIntegratingWithZIO_Solutions {
     // ZIO Layer for Database Transactor
     object Database {
 
+      private def sqliteJdbcUrl: String =
+        Option(java.lang.System.getProperty("sqlite.jdbc.url"))
+          .orElse(Option(java.lang.System.getenv("SQLITE_JDBC_URL")))
+          .getOrElse {
+            val dbPath =
+              java.nio.file.Paths
+                .get("target", "users.db")
+                .toAbsolutePath
+                .normalize()
+            Option(dbPath.getParent).foreach(
+              java.nio.file.Files.createDirectories(_)
+            )
+            s"jdbc:sqlite:${dbPath.toString}"
+          }
+
       private def hikariConfig: HikariConfig = {
         val config = new HikariConfig()
         config.setDriverClassName("org.sqlite.JDBC")
-        config.setJdbcUrl("jdbc:sqlite:users.db")
+        config.setJdbcUrl(sqliteJdbcUrl)
         config.setMaximumPoolSize(1) // SQLite doesn't support concurrent writes
         config
       }
