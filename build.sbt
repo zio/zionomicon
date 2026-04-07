@@ -19,6 +19,7 @@ libraryDependencies ++= Seq(
   "dev.zio"        %% "zio-json"                 % "0.7.1",
   "dev.zio"        %% "zio-schema"               % "1.7.3",
   "dev.zio"        %% "zio-schema-derivation"    % "1.7.3",
+  "dev.zio"        %% "zio-schema-protobuf"      % "1.3.0",
   "dev.zio"        %% "zio-test"                 % "2.1.21",
   "dev.zio"        %% "zio-prelude"              % "1.0.0-RC39",
   "dev.zio"        %% "zio-interop-cats"         % "23.1.0.5",
