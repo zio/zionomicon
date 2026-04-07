@@ -89,14 +89,16 @@ package CommunicationProtocolsZIOHTTP {
               handler { (req: Request) =>
                 req.body
                   .to[Book]
-                  .mapBoth(
-                    _ => Response.badRequest("Unable to deserialize Book"),
+                  .foldZIO(
+                    _ =>
+                      ZIO.succeed(
+                        Response.badRequest("Unable to deserialize Book")
+                      ),
                     book =>
                       ZIO
                         .serviceWithZIO[BookRepo](_.add(book))
                         .as(Response.status(Status.Created))
                   )
-                  .flatMap(identity)
               },
             /**
              * GET /books - Query books and return results as Protobuf-encoded
@@ -558,7 +560,7 @@ package CommunicationProtocolsZIOHTTP {
           val baseDirFile = new File(baseDir).getCanonicalFile
 
           Routes(
-            Method.GET / Root ->
+            Method.GET / "files" / Root ->
               handler { (_: Request) =>
                 val file = baseDirFile
 
@@ -569,7 +571,7 @@ package CommunicationProtocolsZIOHTTP {
                     .fromFile(file)
                     .map(body => Response(status = Status.Ok, body = body))
               },
-            Method.GET / trailing ->
+            Method.GET / "files" / trailing ->
               handler { (path: Path, _: Request) =>
                 val relativePath = path.encode.stripPrefix("/")
                 val file         = new File(baseDirFile, relativePath).getCanonicalFile
@@ -836,7 +838,7 @@ package CommunicationProtocolsZIOHTTP {
             Method.POST / "upload" -> handler { (req: Request) =>
               req.body.asMultipartForm
                 .mapBoth(
-                  e => Response.internalServerError(e.getMessage),
+                  _ => Response.badRequest("Invalid multipart form"),
                   form => {
                     val filename = form.get("filename").collect {
                       case FormField.Text(_, value, _, _) => value
@@ -879,9 +881,9 @@ package CommunicationProtocolsZIOHTTP {
                                     .fromChunk(data)
                                     .run(ZSink.fromPath(targetPath))
                                     .mapBoth(
-                                      e =>
+                                      _ =>
                                         Response.internalServerError(
-                                          s"Save error: ${e.getMessage}"
+                                          "Failed to process upload"
                                         ),
                                       _ => Response.status(Status.Created)
                                     )
@@ -890,9 +892,9 @@ package CommunicationProtocolsZIOHTTP {
                                   data
                                     .run(ZSink.fromPath(targetPath))
                                     .mapBoth(
-                                      e =>
+                                      _ =>
                                         Response.internalServerError(
-                                          s"Save error: ${e.getMessage}"
+                                          "Failed to process upload"
                                         ),
                                       _ => Response.status(Status.Created)
                                     )
@@ -1236,6 +1238,14 @@ package CommunicationProtocolsZIOHTTP {
       object RateLimiter {
 
         /**
+         * Threshold for full cleanup of expired entries. When the tracked IP
+         * map exceeds this size, we perform a full scan to remove all expired
+         * entries. This bounds memory growth on long-running servers while
+         * keeping per-request overhead constant under normal load.
+         */
+        private val CleanupSizeThreshold = 10000
+
+        /**
          * Extracts the client IP address from a request.
          *
          * Security note: This implementation prioritizes the socket remote
@@ -1306,7 +1316,7 @@ package CommunicationProtocolsZIOHTTP {
                           if (currentIpExpired) state - clientIp else state
 
                         // Occasional full cleanup: if map size exceeds threshold (10k), prune all expired
-                        if (cleanedState.size > 10000) {
+                        if (cleanedState.size > CleanupSizeThreshold) {
                           cleanedState = cleanedState.filter {
                             case (_, limitState) =>
                               val windowEnd = limitState.windowStartTime
@@ -1365,43 +1375,36 @@ package CommunicationProtocolsZIOHTTP {
           } yield result
 
         /**
-         * Creates a rate limiting middleware with the given configuration.
+         * Creates a rate limiting middleware effect with the given
+         * configuration.
          *
          * Each middleware instance maintains its own isolated rate limit state
-         * (per-route semantics).
+         * (per-route semantics). The state is allocated explicitly via a
+         * managed effect, making initialization transparent.
          *
          * Returns 429 Too Many Requests if client IP exceeds the configured
          * limit. Otherwise allows the request through.
          */
         def rateLimitMiddleware(
           config: RateLimitConfig
-        ): HandlerAspect[Any, Unit] = {
-          // Eagerly create exactly one shared Ref per middleware instance so
-          // all requests observe and update the same rate-limit state.
-          // Use Ref.unsafe.make to avoid ZIO context dependency and ensure
-          // the Ref is created once, preventing race conditions that could
-          // split traffic across multiple Refs.
-          val stateRef: Ref[Map[String, RateLimitState]] =
-            zio.Unsafe.unsafe { implicit unsafe =>
-              Ref.unsafe.make(Map.empty[String, RateLimitState])
-            }
-
-          HandlerAspect.interceptHandlerStateful(
-            Handler.fromFunctionZIO[Request] { req =>
-              val clientIp = extractClientIp(req)
-              checkRateLimit(stateRef, config, clientIp).flatMap {
-                case Some(_) =>
-                  ZIO.succeed(((), (req, ())))
-                case None =>
-                  ZIO.fail(Response.status(Status.TooManyRequests))
+        ): ZIO[Any, Nothing, HandlerAspect[Any, Unit]] =
+          Ref.make(Map.empty[String, RateLimitState]).map { stateRef =>
+            HandlerAspect.interceptHandlerStateful(
+              Handler.fromFunctionZIO[Request] { req =>
+                val clientIp = extractClientIp(req)
+                checkRateLimit(stateRef, config, clientIp).flatMap {
+                  case Some(_) =>
+                    ZIO.succeed(((), (req, ())))
+                  case None =>
+                    ZIO.fail(Response.status(Status.TooManyRequests))
+                }
               }
-            }
-          )(
-            Handler.fromFunctionZIO[(Unit, Response)] { case (_, response) =>
-              ZIO.succeed(response)
-            }
-          )
-        }
+            )(
+              Handler.fromFunctionZIO[(Unit, Response)] { case (_, response) =>
+                ZIO.succeed(response)
+              }
+            )
+          }
       }
 
       /**
@@ -1419,18 +1422,20 @@ package CommunicationProtocolsZIOHTTP {
       object ExampleApp extends ZIOAppDefault {
 
         def run: ZIO[Any, Any, Unit] =
-          Server
-            .serve(
-              Routes(
-                Method.GET / "api" / "data" ->
-                  handler {
-                    ZIO.succeed(Response.text("Here is your data"))
-                  }
-              ) @@ RateLimiter.rateLimitMiddleware(
+          (for {
+            middleware <-
+              RateLimiter.rateLimitMiddleware(
                 RateLimitConfig(maxRequests = 5, timeWindow = 10.seconds)
               )
-            )
-            .provide(Server.default)
+            _ <- Server.serve(
+                   Routes(
+                     Method.GET / "api" / "data" ->
+                       handler {
+                         ZIO.succeed(Response.text("Here is your data"))
+                       }
+                   ) @@ middleware
+                 )
+          } yield ()).provide(Server.default)
       }
 
       /**
@@ -1457,6 +1462,12 @@ package CommunicationProtocolsZIOHTTP {
                     }
             _ <- ZIO.debug(s"Allocated port: $port")
 
+            // Create the rate limiting middleware
+            middleware <-
+              RateLimiter.rateLimitMiddleware(
+                RateLimitConfig(maxRequests = 3, timeWindow = 5.seconds)
+              )
+
             // Start the server with rate limiting (3 requests per 5 seconds)
             _ <- Server
                    .serve(
@@ -1465,9 +1476,7 @@ package CommunicationProtocolsZIOHTTP {
                          handler {
                            ZIO.succeed(Response.status(Status.Ok))
                          }
-                     ) @@ RateLimiter.rateLimitMiddleware(
-                       RateLimitConfig(maxRequests = 3, timeWindow = 5.seconds)
-                     )
+                     ) @@ middleware
                    )
                    .provide(
                      ZLayer.succeed(
