@@ -562,29 +562,34 @@ package CommunicationProtocolsZIOHTTP {
           Routes(
             Method.GET / "files" / Root ->
               handler { (_: Request) =>
-                val file = baseDirFile
-
-                if (!file.isFile)
-                  ZIO.succeed(Response.status(Status.NotFound))
-                else
-                  Body
-                    .fromFile(file)
-                    .map(body => Response(status = Status.Ok, body = body))
+                ZIO
+                  .attemptBlocking(baseDirFile.isFile)
+                  .flatMap { isFile =>
+                    if (!isFile) ZIO.succeed(Response.status(Status.NotFound))
+                    else
+                      Body
+                        .fromFile(baseDirFile)
+                        .map(body => Response(status = Status.Ok, body = body))
+                  }
+                  .orElse(ZIO.succeed(Response.status(Status.NotFound)))
               },
             Method.GET / "files" / trailing ->
               handler { (path: Path, _: Request) =>
-                val relativePath = path.encode.stripPrefix("/")
-                val file         = new File(baseDirFile, relativePath).getCanonicalFile
-
-                if (
-                  !file.toPath.startsWith(baseDirFile.toPath) || !file
-                    .exists() || !file.isFile
-                )
-                  ZIO.succeed(Response.status(Status.NotFound))
-                else
-                  Body
-                    .fromFile(file)
-                    .map(body => Response(status = Status.Ok, body = body))
+                ZIO.attemptBlocking {
+                  val relativePath = path.encode.stripPrefix("/")
+                  new File(baseDirFile, relativePath).getCanonicalFile
+                }.flatMap { file =>
+                  ZIO.attemptBlocking {
+                    file.toPath.startsWith(baseDirFile.toPath) && file
+                      .exists() && file.isFile
+                  }.flatMap { isValid =>
+                    if (!isValid) ZIO.succeed(Response.status(Status.NotFound))
+                    else
+                      Body
+                        .fromFile(file)
+                        .map(body => Response(status = Status.Ok, body = body))
+                  }
+                }.orElse(ZIO.succeed(Response.status(Status.NotFound)))
               }
           )
         }
@@ -658,9 +663,11 @@ package CommunicationProtocolsZIOHTTP {
             _ <- ZIO.sleep(1.second)
 
             // TEST 1: Serve a file in the root
-            _ <- ZIO.debug("\n=== TEST 1: GET /hello.txt ===")
+            _ <- ZIO.debug("\n=== TEST 1: GET /files/hello.txt ===")
             url1 <-
-              ZIO.fromEither(URL.decode(s"http://127.0.0.1:$port/hello.txt"))
+              ZIO.fromEither(
+                URL.decode(s"http://127.0.0.1:$port/files/hello.txt")
+              )
             req1   = Request.get(url1)
             res1  <- Client.batched(req1)
             body1 <- res1.body.asString
@@ -674,10 +681,11 @@ package CommunicationProtocolsZIOHTTP {
                  }
 
             // TEST 2: Serve a file in a subdirectory
-            _ <- ZIO.debug("\n=== TEST 2: GET /subdir/data.json ===")
-            url2 <- ZIO.fromEither(
-                      URL.decode(s"http://127.0.0.1:$port/subdir/data.json")
-                    )
+            _ <- ZIO.debug("\n=== TEST 2: GET /files/subdir/data.json ===")
+            url2 <-
+              ZIO.fromEither(
+                URL.decode(s"http://127.0.0.1:$port/files/subdir/data.json")
+              )
             req2   = Request.get(url2)
             res2  <- Client.batched(req2)
             body2 <- res2.body.asString
@@ -692,12 +700,14 @@ package CommunicationProtocolsZIOHTTP {
               }
 
             // TEST 3: Request non-existent file
-            _ <- ZIO.debug(
-                   "\n=== TEST 3: GET /nonexistent.txt (should be 404) ==="
-                 )
-            url3 <- ZIO.fromEither(
-                      URL.decode(s"http://127.0.0.1:$port/nonexistent.txt")
-                    )
+            _ <-
+              ZIO.debug(
+                "\n=== TEST 3: GET /files/nonexistent.txt (should be 404) ==="
+              )
+            url3 <-
+              ZIO.fromEither(
+                URL.decode(s"http://127.0.0.1:$port/files/nonexistent.txt")
+              )
             req3  = Request.get(url3)
             res3 <- Client.batched(req3)
             _    <- ZIO.debug(s"Response: ${res3.status}")
@@ -710,7 +720,7 @@ package CommunicationProtocolsZIOHTTP {
             // TEST 4: Directory traversal attack prevention
             _ <- ZIO.debug("\n=== TEST 4: Path traversal protection (/../) ===")
             url4 <- ZIO.fromEither(
-                      URL.decode(s"http://127.0.0.1:$port/../etc/passwd")
+                      URL.decode(s"http://127.0.0.1:$port/files/../etc/passwd")
                     )
             req4  = Request.get(url4)
             res4 <- Client.batched(req4)
@@ -725,10 +735,12 @@ package CommunicationProtocolsZIOHTTP {
 
             // TEST 5: Directory request (should be 404, not directory listing)
             _ <- ZIO.debug(
-                   "\n=== TEST 5: GET /subdir/ (directory, should be 404) ==="
+                   "\n=== TEST 5: GET /files/subdir/ (directory, should be 404) ==="
                  )
             url5 <-
-              ZIO.fromEither(URL.decode(s"http://127.0.0.1:$port/subdir/"))
+              ZIO.fromEither(
+                URL.decode(s"http://127.0.0.1:$port/files/subdir/")
+              )
             req5  = Request.get(url5)
             res5 <- Client.batched(req5)
             _    <- ZIO.debug(s"Response: ${res5.status}")
@@ -823,98 +835,105 @@ package CommunicationProtocolsZIOHTTP {
          */
         def uploadEndpoint(
           uploadDir: String
-        ): zio.http.Routes[Any, Response] = {
-          val uploadDirFile = new File(uploadDir).getCanonicalFile
+        ): ZIO[Any, Throwable, zio.http.Routes[Any, Response]] =
+          ZIO.attemptBlocking {
+            val uploadDirFile = new File(uploadDir).getCanonicalFile
 
-          // Ensure upload directory exists and is a directory
-          JFiles.createDirectories(uploadDirFile.toPath)
-          if (!uploadDirFile.isDirectory) {
-            throw new IllegalArgumentException(
-              s"Upload path is not a directory: ${uploadDirFile.getPath}"
-            )
-          }
+            // Ensure upload directory exists and is a directory
+            JFiles.createDirectories(uploadDirFile.toPath)
+            if (!uploadDirFile.isDirectory) {
+              throw new IllegalArgumentException(
+                s"Upload path is not a directory: ${uploadDirFile.getPath}"
+              )
+            }
 
-          Routes(
-            Method.POST / "upload" -> handler { (req: Request) =>
-              req.body.asMultipartForm
-                .mapBoth(
-                  _ => Response.badRequest("Invalid multipart form"),
-                  form => {
-                    val filename = form.get("filename").collect {
-                      case FormField.Text(_, value, _, _) => value
-                    }
-                    val fileField = form.get("file")
+            uploadDirFile
+          }.map { uploadDirFile =>
+            Routes(
+              Method.POST / "upload" -> handler { (req: Request) =>
+                req.body.asMultipartForm
+                  .mapBoth(
+                    _ => Response.badRequest("Invalid multipart form"),
+                    form => {
+                      val filename = form.get("filename").collect {
+                        case FormField.Text(_, value, _, _) => value
+                      }
+                      val fileField = form.get("file")
 
-                    (filename, fileField) match {
-                      case (None, _) =>
-                        ZIO.succeed(
-                          Response.badRequest(
-                            "Missing or invalid 'filename' field"
+                      (filename, fileField) match {
+                        case (None, _) =>
+                          ZIO.succeed(
+                            Response.badRequest(
+                              "Missing or invalid 'filename' field"
+                            )
                           )
-                        )
-                      case (_, None) =>
-                        ZIO.succeed(Response.badRequest("Missing 'file' field"))
-                      case (Some(fname), Some(field)) =>
-                        val validated = validateFilename(fname)
-                        validated.fold(
-                          error => {
-                            val msg = error match {
-                              case UploadError.InvalidFileName(m) => m
-                              case UploadError.SaveError(m)       => m
-                            }
-                            ZIO.succeed(Response.badRequest(msg))
-                          },
-                          validName => {
-                            val targetPath =
-                              new File(
-                                uploadDirFile,
-                                validName
-                              ).getCanonicalFile.toPath
-                            if (!targetPath.startsWith(uploadDirFile.toPath)) {
-                              ZIO.succeed(
-                                Response.badRequest("Invalid file path")
-                              )
-                            } else {
-                              field match {
-                                case FormField.Binary(_, data, _, _, _) =>
-                                  ZStream
-                                    .fromChunk(data)
-                                    .run(ZSink.fromPath(targetPath))
-                                    .mapBoth(
-                                      _ =>
-                                        Response.internalServerError(
-                                          "Failed to process upload"
-                                        ),
-                                      _ => Response.status(Status.Created)
+                        case (_, None) =>
+                          ZIO.succeed(
+                            Response.badRequest("Missing 'file' field")
+                          )
+                        case (Some(fname), Some(field)) =>
+                          val validated = validateFilename(fname)
+                          validated.fold(
+                            error => {
+                              val msg = error match {
+                                case UploadError.InvalidFileName(m) => m
+                                case UploadError.SaveError(m)       => m
+                              }
+                              ZIO.succeed(Response.badRequest(msg))
+                            },
+                            validName => {
+                              val targetPath =
+                                new File(
+                                  uploadDirFile,
+                                  validName
+                                ).getCanonicalFile.toPath
+                              if (
+                                !targetPath.startsWith(uploadDirFile.toPath)
+                              ) {
+                                ZIO.succeed(
+                                  Response.badRequest("Invalid file path")
+                                )
+                              } else {
+                                field match {
+                                  case FormField.Binary(_, data, _, _, _) =>
+                                    ZStream
+                                      .fromChunk(data)
+                                      .run(ZSink.fromPath(targetPath))
+                                      .mapBoth(
+                                        _ =>
+                                          Response.internalServerError(
+                                            "Failed to process upload"
+                                          ),
+                                        _ => Response.status(Status.Created)
+                                      )
+                                  case FormField
+                                        .StreamingBinary(_, _, _, _, data) =>
+                                    data
+                                      .run(ZSink.fromPath(targetPath))
+                                      .mapBoth(
+                                        _ =>
+                                          Response.internalServerError(
+                                            "Failed to process upload"
+                                          ),
+                                        _ => Response.status(Status.Created)
+                                      )
+                                  case _ =>
+                                    ZIO.succeed(
+                                      Response.badRequest(
+                                        "Invalid file field type"
+                                      )
                                     )
-                                case FormField
-                                      .StreamingBinary(_, _, _, _, data) =>
-                                  data
-                                    .run(ZSink.fromPath(targetPath))
-                                    .mapBoth(
-                                      _ =>
-                                        Response.internalServerError(
-                                          "Failed to process upload"
-                                        ),
-                                      _ => Response.status(Status.Created)
-                                    )
-                                case _ =>
-                                  ZIO.succeed(
-                                    Response.badRequest(
-                                      "Invalid file field type"
-                                    )
-                                  )
+                                }
                               }
                             }
-                          }
-                        )
+                          )
+                      }
                     }
-                  }
-                )
-                .flatMap(x => x)
-            }
-          )
-        }
+                  )
+                  .flatMap(x => x)
+              }
+            )
+          }
       }
 
       /**
@@ -933,13 +952,16 @@ package CommunicationProtocolsZIOHTTP {
           ZIO.debug(
             "Starting file upload server on http://localhost:8080/upload"
           ) *>
-            Server
-              .serve(FileUploadRoutes.uploadEndpoint("/tmp/uploads"))
-              .provide(
-                ZLayer.succeed(
-                  Server.Config.default.enableRequestStreaming
-                ) >>> Server.live
-              )
+            (for {
+              routes <- FileUploadRoutes.uploadEndpoint("/tmp/uploads")
+              _ <- Server
+                     .serve(routes)
+                     .provide(
+                       ZLayer.succeed(
+                         Server.Config.default.enableRequestStreaming
+                       ) >>> Server.live
+                     )
+            } yield ())
       }
 
       /**
@@ -974,8 +996,9 @@ package CommunicationProtocolsZIOHTTP {
             _ <- ZIO.debug(s"Allocated port: $port")
 
             // Start the server with request streaming enabled
+            routes <- FileUploadRoutes.uploadEndpoint(tempDir.toString)
             _ <- Server
-                   .serve(FileUploadRoutes.uploadEndpoint(tempDir.toString))
+                   .serve(routes)
                    .provide(
                      ZLayer.succeed(
                        Server.Config.default.enableRequestStreaming.port(port)
