@@ -22,10 +22,11 @@ ZIO is a zero-dependency Scala library that provides:
 
 ## Overview
 
-### Fundamentals (Chapters 1–3)
+### Fundamentals (Chapters 1–4)
 - **Chapter 1**: First steps with ZIO — basic effects, main function, error handling ([Exercises](src/main/scala/zionomicon/exercises/01-first-steps-with-zio.scala) | [Solutions](src/main/scala/zionomicon/solutions/01-first-steps-with-zio.scala))
 - **Chapter 2**: Testing ZIO programs — test assertions, test services ([Exercises](src/main/scala/zionomicon/exercises/02-testing-zio-programs.scala) | [Solutions](src/main/scala/zionomicon/solutions/02-testing-zio-programs.scala))
 - **Chapter 3**: The ZIO error model — typed errors, exception handling ([Exercises](src/main/scala/zionomicon/exercises/03-the-zio-error-model.scala) | [Solutions](src/main/scala/zionomicon/solutions/03-the-zio-error-model.scala))
+- **Chapter 4**: Essentials — integrating with ZIO, database operations, legacy code integration ([Exercises](src/main/scala/zionomicon/exercises/04-essentials-integrating-with-zio.scala) | [Solutions](src/main/scala/zionomicon/solutions/04-essentials-integrating-with-zio.scala))
 
 ### Parallelism & Concurrency (Chapters 5–6, 8)
 - **Chapter 5**: The fiber model — lightweight concurrency, fiber creation and inspection ([Exercises](src/main/scala/zionomicon/exercises/05-parallelism-and-concurrency-the-fiber-model.scala) | [Solutions](src/main/scala/zionomicon/solutions/05-parallelism-and-concurrency-the-fiber-model.scala))
@@ -51,9 +52,24 @@ ZIO is a zero-dependency Scala library that provides:
 - **Chapter 22**: STM data structures — TArray, TMap, TQueue, etc. ([Exercises](src/main/scala/zionomicon/exercises/22-stm-data-structures.scala) | [Solutions](src/main/scala/zionomicon/solutions/22-stm-data-structures.scala))
 - **Chapter 23**: STM performance — optimization and tradeoffs ([Exercises](src/main/scala/zionomicon/exercises/23-stm-performance.scala) | [Solutions](src/main/scala/zionomicon/solutions/23-stm-performance.scala))
 
-### Resilience & Practices (Chapters 24, 26)
+### Streams & Channels (Chapters 29–32)
+- **Chapter 29**: ZChannel — low-level channel abstraction, composing channels ([Exercises](src/main/scala/zionomicon/exercises/29-zchannel.scala) | [Solutions](src/main/scala/zionomicon/solutions/29-zchannel.scala))
+- **Chapter 30**: Transforming streams — mapping, filtering, folding stream data ([Exercises](src/main/scala/zionomicon/exercises/30-transforming-streams.scala) | [Solutions](src/main/scala/zionomicon/solutions/30-transforming-streams.scala))
+- **Chapter 31**: Combining streams — merging, zipping, and correlating multiple streams ([Exercises](src/main/scala/zionomicon/exercises/31-combining-streams.scala) | [Solutions](src/main/scala/zionomicon/solutions/31-combining-streams.scala))
+- **Chapter 32**: Streaming pipelines — building data processing pipelines with streams ([Exercises](src/main/scala/zionomicon/exercises/32-streaming-pipelines.scala) | [Solutions](src/main/scala/zionomicon/solutions/32-streaming-pipelines.scala))
+
+### Communication & Protocols (Chapters 34–35)
+- **Chapter 34**: Schemas — the anatomy of data types, schema design patterns ([Exercises](src/main/scala/zionomicon/exercises/34-schemas-the-anatomy-of-data-types.scala) | [Solutions](src/main/scala/zionomicon/solutions/34-schemas-the-anatomy-of-data-types.scala))
+- **Chapter 35**: Communication protocols — ZIO HTTP, RESTful APIs, serialization ([Exercises](src/main/scala/zionomicon/exercises/35-communication-protocols-zio-http.scala) | [Solutions](src/main/scala/zionomicon/solutions/35-communication-protocols-zio-http.scala))
+
+### Resilience, Runtime & Observability (Chapters 24, 26, 37, 39)
 - **Chapter 24**: Retries — schedules, exponential backoff, adaptive policies ([Exercises](src/main/scala/zionomicon/exercises/24-retries.scala) | [Solutions](src/main/scala/zionomicon/solutions/24-retries.scala))
 - **Chapter 26**: Best practices — design patterns and code organization ([Exercises](src/main/scala/zionomicon/exercises/26-best-practices.scala) | [Solutions](src/main/scala/zionomicon/solutions/26-best-practices.scala))
+- **Chapter 37**: ZIO runtime — executor configuration, thread pool management, runtime system ([Exercises](src/main/scala/zionomicon/exercises/37-zio-runtime.scala) | [Solutions](src/main/scala/zionomicon/solutions/37-zio-runtime.scala))
+- **Chapter 39**: Observability — metrics, monitoring, Prometheus and StatsD integration ([Exercises](src/main/scala/zionomicon/exercises/39-observability-metrics.scala) | [Solutions](src/main/scala/zionomicon/solutions/39-observability-metrics.scala))
+
+### Appendices
+- **Appendix C**: Functional design — function composition, functional abstractions ([Exercises](src/main/scala/zionomicon/exercises/51-appendix-c-functional-design.scala) | [Solutions](src/main/scala/zionomicon/solutions/51-appendix-c-functional-design.scala))
 
 ## Building and Running
 
