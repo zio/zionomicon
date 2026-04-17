@@ -1,3 +1,7 @@
+<div style="text-align: center;">
+  <img src="https://zionomicon.com/images/min/book-img.png" alt="Zionomicon Book" width="200" />
+</div>
+
 # Zionomicon Solutions
 
 A comprehensive collection of **exercises and solutions** for learning [ZIO](https://zio.dev/) — a Scala library for asynchronous and concurrent programming.
